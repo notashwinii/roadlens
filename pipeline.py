@@ -29,6 +29,13 @@ def process_video(
     runtime_zones=None,
     rule_engine=None,
     action_runner=None,
+    camera_id=None,
+    save_evidence_images=False,
+    output_dir="outputs/evidence",
+    review_status_default="pending",
+    save_selected_frame=True,
+    save_vehicle_crop=True,
+    save_plate_crop=True,
 ):
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -294,9 +301,67 @@ def process_video(
                 )
 
                 detection_id = None
+                violation_event_id = None
+                violation_event_ids = []
+                evidence_artifacts = []
 
                 if save_to_db and db is not None and video is not None:
-                    from db.repository import save_detection
+                    from db.repository import (
+                        save_detection,
+                        save_evidence_artifact,
+                        save_violation_event,
+                    )
+
+                    for rule_match in rule_matches:
+                        violation_event = save_violation_event(
+                            db,
+                            video.id,
+                            rule_match,
+                            review_status=review_status_default,
+                        )
+                        violation_event_ids.append(violation_event.id)
+
+                        if violation_event_id is None:
+                            violation_event_id = violation_event.id
+
+                        if save_evidence_images:
+                            from evidence.artifact_writer import write_image_artifact
+
+                            artifact_images = []
+                            if save_selected_frame:
+                                artifact_images.append(("selected_frame", frame_image))
+                            if save_vehicle_crop:
+                                artifact_images.append(("vehicle_crop", vehicle_crop))
+                            if save_plate_crop:
+                                artifact_images.append(("plate_crop", plate_img))
+
+                            for artifact_type, artifact_image in artifact_images:
+                                path, width, height = write_image_artifact(
+                                    artifact_image,
+                                    output_dir=output_dir,
+                                    camera_id=camera_id or "unknown_camera",
+                                    video_id=video.id,
+                                    event_id=violation_event.id,
+                                    artifact_type=artifact_type,
+                                )
+                                artifact = save_evidence_artifact(
+                                    db,
+                                    violation_event.id,
+                                    artifact_type,
+                                    path,
+                                    width=width,
+                                    height=height,
+                                )
+                                evidence_artifacts.append(
+                                    {
+                                        "id": artifact.id,
+                                        "violation_event_id": violation_event.id,
+                                        "type": artifact_type,
+                                        "path": path,
+                                        "width": width,
+                                        "height": height,
+                                    }
+                                )
 
                     detection = save_detection(
                         db,
@@ -306,6 +371,7 @@ def process_video(
                         plate_img,
                         detector_confidence=detector_confidence,
                         ocr_confidence=ocr_result.confidence,
+                        violation_event_id=violation_event_id,
                     )
                     detection_id = detection.id
 
@@ -330,6 +396,14 @@ def process_video(
                     "ocr_segments": ocr_result.segments,
                     "frame_metadata": frame_metadata,
                     "detection_id": detection_id,
+                    "violation_event_id": violation_event_id,
+                    "violation_event_ids": violation_event_ids,
+                    "review_status": (
+                        review_status_default
+                        if violation_event_id is not None
+                        else None
+                    ),
+                    "evidence_artifacts": evidence_artifacts,
                     "violation_candidate": bool(rule_matches),
                     "rule_matches": [
                         match.to_result_metadata() for match in rule_matches
@@ -377,6 +451,13 @@ def process_video_from_config(config, **overrides):
         "vehicle_model_path": config.models.vehicle_detector,
         "roi": roi,
         "save_to_db": config.storage.save_to_db,
+        "camera_id": config.camera.id,
+        "save_evidence_images": config.storage.save_evidence_images,
+        "output_dir": config.storage.output_dir,
+        "review_status_default": config.storage.review_status_default,
+        "save_selected_frame": config.storage.save_selected_frame,
+        "save_vehicle_crop": config.storage.save_vehicle_crop,
+        "save_plate_crop": config.storage.save_plate_crop,
         "min_detection_confidence": config.detection.plate_confidence,
         "motion_threshold": config.frame_selection.motion_threshold,
         "cooldown_frames": config.frame_selection.cooldown_frames,
