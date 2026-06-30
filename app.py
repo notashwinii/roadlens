@@ -13,7 +13,10 @@ from streamlit.elements.lib.layout_utils import LayoutConfig
 import pipeline
 from core.config_loader import load_config
 from ingestion.roi import clamp_roi
-from scene.scene_builder import build_scene_from_config
+from rules.action_runner import ActionRunner
+from rules.conditions import ConditionProvider
+from rules.rule_engine import RuleEngine
+from scene.scene_builder import build_runtime_zones, build_scene_from_config
 from scene.zone_renderer import draw_zones
 
 os.environ.setdefault(
@@ -356,6 +359,17 @@ def render_results(results):
                 st.write(
                     f"Vehicle coordinates: `{format_coords(result.get('vehicle_coords'))}`"
                 )
+                rule_matches = result.get("rule_matches", [])
+                if result.get("violation_candidate") and rule_matches:
+                    st.write("Violation candidate: `Yes`")
+                    for match in rule_matches:
+                        st.write(
+                            "Matched rule: "
+                            f"`{match['rule_name']}` "
+                            f"({match['zone_name']}, {match['zone_type']})"
+                        )
+                else:
+                    st.write("Violation candidate: `No`")
 
 
 def render_config_preview(config):
@@ -364,6 +378,7 @@ def render_config_preview(config):
     st.write(f"Vehicle model: `{config.models.vehicle_detector}`")
     st.write(f"Plate model: `{config.models.plate_detector}`")
     st.write(f"Zones: `{len(config.zones)}` configured")
+    st.write(f"Rules: `{len(config.rules)}` configured")
     st.write(
         "Frame selection: "
         f"motion>{config.frame_selection.motion_threshold}, "
@@ -810,6 +825,17 @@ if has_video:
                 original_selected_frames
             )
             try:
+                rule_engine = None
+                action_runner = None
+                runtime_zones = None
+                if loaded_config is not None:
+                    runtime_zones = build_runtime_zones(loaded_config, w, h)
+                    rule_engine = RuleEngine(
+                        loaded_config.rules,
+                        ConditionProvider(loaded_config.conditions),
+                    )
+                    action_runner = ActionRunner()
+
                 results = pipeline.process_video(
                     video_path=video_path,
                     roi=roi,
@@ -820,6 +846,9 @@ if has_video:
                     plate_detector=plate_detector,
                     ocr=ocr,
                     status_callback=on_status,
+                    runtime_zones=runtime_zones,
+                    rule_engine=rule_engine,
+                    action_runner=action_runner,
                 )
             finally:
                 pipeline.selected_frames = original_selected_frames
