@@ -10,6 +10,9 @@ class FakeCap:
     def isOpened(self):
         return True
 
+    def read(self):
+        return True, np.zeros((20, 30, 3), dtype=np.uint8)
+
     def release(self):
         pass
 
@@ -345,6 +348,7 @@ def test_process_video_from_config_maps_config_to_pipeline(monkeypatch):
         return [{"plate_text": "BA 12 PA 3456"}]
 
     monkeypatch.setattr(pipeline, "process_video", fake_process_video)
+    monkeypatch.setattr("scene.scene_builder.cv2.VideoCapture", lambda _path: FakeCap())
 
     config = RoadLensConfig.model_validate(
         {
@@ -396,7 +400,7 @@ def test_process_video_from_config_maps_config_to_pipeline(monkeypatch):
         "video_path": "demo.mp4",
         "model_path": "plate.pt",
         "vehicle_model_path": "vehicle.pt",
-        "roi": (100, 100, 800, 300),
+        "roi": (3, 4, 24, 12),
         "save_to_db": False,
         "min_detection_confidence": 0.25,
         "motion_threshold": 200,
