@@ -87,12 +87,32 @@ The config controls:
 
 - camera/video source
 - model paths
-- detection ROI placeholder
+- semantic zones and detection ROI
 - frame-selection thresholds
 - detection confidence thresholds
 - storage behavior
 
 Admin UI support will be added later. For now, YAML is the source of truth.
+
+## Scene Calibration Preview
+
+RoadLens supports semantic zone configuration through YAML. To preview configured zones on the first frame of a video:
+
+```bash
+python scripts/preview_zones.py --config configs/sample_camera.yaml --output outputs/zone_preview.jpg
+```
+
+Zones use normalized coordinates so they can be saved independently of a specific frame resolution. At runtime, RoadLens converts normalized zones into pixel-space runtime zones using the actual video frame size.
+
+Supported zone types:
+
+- `detection_roi`
+- `stop_line`
+- `zebra_crossing`
+- `restricted_zone`
+- `no_entry`
+
+The current ALPR pipeline still uses `detection_roi` for frame selection. Violation rules will be added in a later step.
 
 ## Project Pipeline
 
@@ -168,11 +188,19 @@ OCR debug images are disabled by default. If `PaddleInference(debug=True)` is en
 |-- core/
 |   |-- config_loader.py
 |   |-- config_schema.py
-|   `-- config_validation.py
+|   |-- config_validation.py
+|   `-- config_writer.py
 |-- ingestion/
 |   |-- cropping.py
 |   |-- roi.py
 |   `-- video_feed.py
+|-- scene/
+|   |-- geometry.py
+|   |-- runtime_zone.py
+|   |-- scene_builder.py
+|   `-- zone_renderer.py
+|-- scripts/
+|   `-- preview_zones.py
 |-- db/
 |   |-- database.py
 |   |-- models.py
