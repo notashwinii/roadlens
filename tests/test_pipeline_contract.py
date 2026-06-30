@@ -190,6 +190,10 @@ def test_process_video_excludes_images_by_default(monkeypatch):
         "timestamp_seconds": 0.4,
         "selection_reason": "motion_cooldown",
     }
+    assert result["violation_event_id"] is None
+    assert result["violation_event_ids"] == []
+    assert result["review_status"] is None
+    assert result["evidence_artifacts"] == []
     assert result["violation_candidate"] is False
     assert result["rule_matches"] == []
 
@@ -345,6 +349,9 @@ def test_process_video_attaches_matching_rule_metadata(monkeypatch):
 
     assert len(results) == 1
     assert results[0]["violation_candidate"] is True
+    assert results[0]["violation_event_id"] is None
+    assert results[0]["review_status"] is None
+    assert results[0]["evidence_artifacts"] == []
     assert results[0]["rule_matches"] == [
         {
             "rule_id": "restricted_zone_entry",
@@ -513,6 +520,12 @@ def test_process_video_from_config_maps_config_to_pipeline(monkeypatch):
             },
             "storage": {
                 "save_to_db": False,
+                "save_evidence_images": False,
+                "output_dir": "outputs/evidence",
+                "review_status_default": "pending",
+                "save_selected_frame": True,
+                "save_vehicle_crop": True,
+                "save_plate_crop": True,
             },
         }
     )
@@ -526,6 +539,13 @@ def test_process_video_from_config_maps_config_to_pipeline(monkeypatch):
         "vehicle_model_path": "vehicle.pt",
         "roi": (3, 4, 24, 12),
         "save_to_db": False,
+        "camera_id": "demo_camera_01",
+        "save_evidence_images": False,
+        "output_dir": "outputs/evidence",
+        "review_status_default": "pending",
+        "save_selected_frame": True,
+        "save_vehicle_crop": True,
+        "save_plate_crop": True,
         "min_detection_confidence": 0.25,
         "motion_threshold": 200,
         "cooldown_frames": 7,
