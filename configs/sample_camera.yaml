@@ -60,6 +60,66 @@ zones:
       - [0.38, 0.90]
       - [0.02, 0.92]
 
+conditions:
+  - id: always_forbidden
+    name: Always Forbidden
+    type: always_true
+    enabled: true
+
+  - id: red_light_main
+    name: Main Signal Red Phase
+    type: manual_state
+    enabled: true
+    key: traffic_light_main
+    value: red
+
+  - id: pedestrian_phase_main
+    name: Pedestrian Crossing Phase
+    type: manual_state
+    enabled: false
+    key: pedestrian_signal_main
+    value: walk
+
+rules:
+  - id: red_light_stop_line
+    name: Red Light Stop-Line Violation
+    enabled: true
+    when:
+      all:
+        - event: vehicle_intersects_zone
+          zone_type: stop_line
+        - condition: red_light_main
+    actions:
+      - create_violation_event
+      - capture_license_plate
+      - send_to_review
+
+  - id: restricted_zone_entry
+    name: Restricted Zone Entry
+    enabled: true
+    when:
+      all:
+        - event: vehicle_intersects_zone
+          zone_type: restricted_zone
+        - condition: always_forbidden
+    actions:
+      - create_violation_event
+      - capture_license_plate
+      - send_to_review
+
+  - id: zebra_crossing_encroachment
+    name: Zebra Crossing Encroachment
+    enabled: false
+    when:
+      all:
+        - event: vehicle_intersects_zone
+          zone_type: zebra_crossing
+        - condition: pedestrian_phase_main
+    actions:
+      - create_violation_event
+      - capture_license_plate
+      - send_to_review
+
 frame_selection:
   motion_threshold: 100
   cooldown_frames: 10

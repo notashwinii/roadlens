@@ -28,10 +28,17 @@ def main():
 
     for result in results:
         detection_id = result.get("detection_id")
+        rule_matches = result.get("rule_matches", [])
+        rule_summary = ""
+        if rule_matches:
+            matched_rules = ", ".join(match["rule_name"] for match in rule_matches)
+            rule_summary = f" | violation candidate: {matched_rules}"
+
         print(
             f"Detection {detection_id or result['frame_index']}: "
             f"{result['vehicle_class']} ({result['vehicle_confidence']:.2%}) | "
             f"{result['plate_text']} at {result['coords']}"
+            f"{rule_summary}"
         )
 
 

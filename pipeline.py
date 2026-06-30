@@ -3,6 +3,10 @@ import os
 import cv2
 
 from ingestion.video_feed import selected_frames
+from rules.action_runner import ActionRunner
+from rules.conditions import ConditionProvider
+from rules.events import generate_vehicle_zone_events
+from rules.rule_engine import RuleEngine
 from scene.scene_builder import runtime_roi_for_video
 
 
@@ -22,6 +26,9 @@ def process_video(
     cooldown_frames=10,
     vehicle_confidence=0.35,
     status_callback=None,
+    runtime_zones=None,
+    rule_engine=None,
+    action_runner=None,
 ):
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -44,6 +51,12 @@ def process_video(
     db = None
     video = None
     results = []
+    action_runner = action_runner or ActionRunner()
+    rules_enabled = (
+        rule_engine is not None
+        and getattr(rule_engine, "has_rules", False)
+        and runtime_zones is not None
+    )
 
     try:
         if vehicle_detector is None:
@@ -116,6 +129,30 @@ def process_video(
                 )
                 continue
 
+            rule_matches_by_vehicle = {}
+            timestamp_seconds = frame_metadata.get("timestamp_seconds")
+
+            if rules_enabled:
+                vehicle_zone_events = generate_vehicle_zone_events(
+                    vehicles,
+                    runtime_zones,
+                    frame_number=source_frame_number,
+                    timestamp_seconds=timestamp_seconds,
+                    bbox_offset=(roi_x, roi_y),
+                )
+
+                for vehicle_zone_event in vehicle_zone_events:
+                    for rule in rule_engine.matching_rules(vehicle_zone_event):
+                        rule_matches_by_vehicle.setdefault(
+                            vehicle_zone_event.vehicle_index,
+                            [],
+                        ).append(
+                            action_runner.build_match(
+                                rule,
+                                vehicle_zone_event,
+                            )
+                        )
+
             for vehicle_index, (
                 vehicle_class,
                 vehicle_confidence,
@@ -124,6 +161,28 @@ def process_video(
                 vx2,
                 vy2,
             ) in enumerate(vehicles, start=1):
+                rule_matches = rule_matches_by_vehicle.get(vehicle_index, [])
+                if rules_enabled and not rule_matches:
+                    emit_status(
+                        "rule_no_match",
+                        (
+                            f"Frame {index + 1}, vehicle {vehicle_index}: "
+                            "no violation rule matched; skipping plate detection."
+                        ),
+                        frame_index=index,
+                        source_frame_number=source_frame_number,
+                        vehicle_index=vehicle_index,
+                        vehicle_class=vehicle_class,
+                        vehicle_confidence=vehicle_confidence,
+                        vehicle_coords=(
+                            roi_x + vx1,
+                            roi_y + vy1,
+                            roi_x + vx2,
+                            roi_y + vy2,
+                        ),
+                    )
+                    continue
+
                 vehicle_x_offset = max(0, int(vx1))
                 vehicle_y_offset = max(0, int(vy1))
 
@@ -271,6 +330,10 @@ def process_video(
                     "ocr_segments": ocr_result.segments,
                     "frame_metadata": frame_metadata,
                     "detection_id": detection_id,
+                    "violation_candidate": bool(rule_matches),
+                    "rule_matches": [
+                        match.to_result_metadata() for match in rule_matches
+                    ],
                 }
 
                 if include_images:
@@ -319,6 +382,22 @@ def process_video_from_config(config, **overrides):
         "cooldown_frames": config.frame_selection.cooldown_frames,
         "vehicle_confidence": config.detection.vehicle_confidence,
     }
+
+    if config.rules:
+        from scene.scene_builder import build_scene_from_config
+
+        scene = build_scene_from_config(config)
+        process_kwargs.update(
+            {
+                "runtime_zones": scene.zones,
+                "rule_engine": RuleEngine(
+                    config.rules,
+                    ConditionProvider(config.conditions),
+                ),
+                "action_runner": ActionRunner(),
+            }
+        )
+
     process_kwargs.update(overrides)
 
     return process_video(**process_kwargs)
