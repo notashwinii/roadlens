@@ -1,0 +1,38 @@
+camera:
+  id: demo_camera_01
+  name: Demo Road Camera
+  source_type: video_file
+  source_path: test_video.mp4
+  reference_resolution: [1920, 1080]
+  timezone: Asia/Kathmandu
+
+models:
+  vehicle_detector: yolo26n.pt
+  plate_detector: models/license_plate.pt
+  ocr_engine: paddleocr
+
+zones:
+  - id: roi_main
+    name: Main Detection ROI
+    type: detection_roi
+    shape: rectangle
+    points_normalized:
+      - [0.10, 0.25]
+      - [0.90, 0.25]
+      - [0.90, 0.90]
+      - [0.10, 0.90]
+
+frame_selection:
+  motion_threshold: 100
+  cooldown_frames: 10
+  sharpness_method: laplacian_variance
+  score_method: motion_area_times_sharpness
+
+detection:
+  vehicle_confidence: 0.35
+  plate_confidence: 0.0
+
+storage:
+  save_to_db: false
+  save_evidence_images: false
+  output_dir: outputs/evidence

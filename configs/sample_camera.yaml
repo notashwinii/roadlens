@@ -1,0 +1,47 @@
+camera:
+  id: sample_camera_01
+  name: Sample Roadside Camera
+  source_type: video_file
+  source_path: test_video.mp4
+  reference_resolution: [1280, 720]
+  timezone: Asia/Kathmandu
+
+models:
+  vehicle_detector: yolo26n.pt
+  plate_detector: models/license_plate.pt
+  ocr_engine: paddleocr
+
+zones:
+  - id: roi_lane_01
+    name: Lane 1 Detection ROI
+    type: detection_roi
+    shape: rectangle
+    points_normalized:
+      - [0.05, 0.30]
+      - [0.95, 0.30]
+      - [0.95, 0.95]
+      - [0.05, 0.95]
+  - id: stop_line_01
+    name: Stop Line Placeholder
+    type: stop_line
+    shape: polygon
+    points_normalized:
+      - [0.20, 0.72]
+      - [0.80, 0.70]
+      - [0.82, 0.76]
+      - [0.22, 0.78]
+
+frame_selection:
+  motion_threshold: 100
+  cooldown_frames: 10
+  sharpness_method: laplacian_variance
+  score_method: motion_area_times_sharpness
+
+detection:
+  vehicle_confidence: 0.35
+  plate_confidence: 0.0
+
+storage:
+  save_to_db: false
+  save_evidence_images: false
+  output_dir: outputs/evidence

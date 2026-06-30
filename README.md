@@ -14,7 +14,7 @@ The demo uses `test_video.mp4` (project root), a YOLO license-plate model at `mo
 5. PaddleOCR reads the cropped plate image.
 6. The detected plate text and confidence values are printed in the terminal and persisted to the local DB (`db/`).
 
-Note: To change the demo video or model, update the `video_path` and `model_path` variables in `main.py` (see Configuration section).
+Note: To change the CLI demo video, model paths, thresholds, or storage behavior, edit or pass a RoadLens YAML config (see Config-Based Run).
 
 ## Requirements
 
@@ -28,7 +28,7 @@ If **Save results to database** is disabled in the Streamlit UI, no database con
 
 | Mode | Command | Notes |
 |---|---|---|
-| CLI local | `python main.py` | Uses `test_video.mp4` by default. Override with `VIDEO_PATH=/path/to/video.mp4`. |
+| CLI local | `python main.py --config configs/default.yaml` | Uses the validated YAML config. |
 | Web local | `streamlit run app.py` | Upload a video through the browser. Opens on `http://localhost:8501` by default. |
 | CLI Docker | `docker compose -f docker/docker-compose.yml up --build app` | Runs `main.py` in the container. |
 | Web Docker | `docker compose -f docker/docker-compose.yml up --build web` | Runs Streamlit on port `8501`. |
@@ -69,9 +69,34 @@ ruff check .
 pytest
 ```
 
+## Config-Based Run
+
+RoadLens can be run from a YAML configuration file:
+
+```bash
+python main.py --config configs/default.yaml
+```
+
+or:
+
+```bash
+ROADLENS_CONFIG=configs/default.yaml python main.py
+```
+
+The config controls:
+
+- camera/video source
+- model paths
+- detection ROI placeholder
+- frame-selection thresholds
+- detection confidence thresholds
+- storage behavior
+
+Admin UI support will be added later. For now, YAML is the source of truth.
+
 ## Project Pipeline
 
-1. `main.py` or `app.py` calls `process_video()` from `pipeline.py`.
+1. `main.py` loads a typed YAML config and calls `process_video_from_config()` from `pipeline.py`; `app.py` still calls `process_video()` for uploaded videos.
 2. `ingestion/video_feed.py` selects useful frames with motion and sharpness checks.
 3. `ocr/licensePlate.py` uses YOLO to find the best license-plate bounding box.
 4. The plate crop is preprocessed and sent to PaddleOCR.
@@ -137,6 +162,13 @@ OCR debug images are disabled by default. If `PaddleInference(debug=True)` is en
 |-- docker/
 |   |-- Dockerfile
 |   `-- docker-compose.yml
+|-- configs/
+|   |-- default.yaml
+|   `-- sample_camera.yaml
+|-- core/
+|   |-- config_loader.py
+|   |-- config_schema.py
+|   `-- config_validation.py
 |-- ingestion/
 |   |-- cropping.py
 |   |-- roi.py
