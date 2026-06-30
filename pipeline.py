@@ -2,6 +2,7 @@ import os
 
 import cv2
 
+from core.config_validation import zone_to_roi
 from ingestion.video_feed import selected_frames
 
 
@@ -17,6 +18,9 @@ def process_video(
     plate_detector=None,
     ocr=None,
     min_detection_confidence=0.0,
+    motion_threshold=100,
+    cooldown_frames=10,
+    vehicle_confidence=0.35,
     status_callback=None,
 ):
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -61,7 +65,14 @@ def process_video(
             db = SessionLocal()
             video = save_video(db, video_path)
 
-        for index, selected_frame in enumerate(selected_frames(cap, roi=roi)):
+        for index, selected_frame in enumerate(
+            selected_frames(
+                cap,
+                roi=roi,
+                motion_threshold=motion_threshold,
+                cooldown_frames=cooldown_frames,
+            )
+        ):
             frame_image = selected_frame["image"]
             roi_x, roi_y, _, _ = selected_frame["roi"]
             source_frame_number = selected_frame["frame_number"]
@@ -80,7 +91,10 @@ def process_video(
                 if key not in {"image", "frame_number", "roi"}
             }
 
-            vehicles = vehicle_detector.vehicle_coordinates(frame_image)
+            vehicles = vehicle_detector.vehicle_coordinates(
+                frame_image,
+                conf_threshold=vehicle_confidence,
+            )
             vehicle_count = len(vehicles)
             emit_status(
                 "vehicles_detected",
@@ -289,3 +303,26 @@ def process_video(
             db.close()
 
     return results
+
+
+def process_video_from_config(config, **overrides):
+    roi = None
+    detection_zones = [zone for zone in config.zones if zone.type == "detection_roi"]
+
+    if detection_zones:
+        roi = zone_to_roi(detection_zones[0], config.camera.reference_resolution)
+
+    process_kwargs = {
+        "video_path": config.camera.source_path,
+        "model_path": config.models.plate_detector,
+        "vehicle_model_path": config.models.vehicle_detector,
+        "roi": roi,
+        "save_to_db": config.storage.save_to_db,
+        "min_detection_confidence": config.detection.plate_confidence,
+        "motion_threshold": config.frame_selection.motion_threshold,
+        "cooldown_frames": config.frame_selection.cooldown_frames,
+        "vehicle_confidence": config.detection.vehicle_confidence,
+    }
+    process_kwargs.update(overrides)
+
+    return process_video(**process_kwargs)

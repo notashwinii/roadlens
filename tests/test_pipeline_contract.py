@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 
 import pipeline
+from core.config_schema import RoadLensConfig
 
 
 class FakeCap:
@@ -47,8 +48,15 @@ class FakeOCR:
         )
 
 
-def fake_selected_frames(_cap, roi=None):
+def fake_selected_frames(
+    _cap,
+    roi=None,
+    motion_threshold=100,
+    cooldown_frames=10,
+):
     assert roi == (5, 7, 30, 20)
+    assert motion_threshold == 100
+    assert cooldown_frames == 10
     yield {
         "image": np.zeros((20, 30, 3), dtype=np.uint8),
         "frame_number": 4,
@@ -282,3 +290,116 @@ def test_process_video_reports_no_vehicle_status(monkeypatch):
         "vehicles_detected",
         "no_vehicles",
     ]
+
+
+def test_process_video_accepts_runtime_thresholds(monkeypatch):
+    def selected_frames_with_config(
+        _cap,
+        roi=None,
+        motion_threshold=100,
+        cooldown_frames=10,
+    ):
+        assert roi == (5, 7, 30, 20)
+        assert motion_threshold == 250
+        assert cooldown_frames == 4
+        yield {
+            "image": np.zeros((20, 30, 3), dtype=np.uint8),
+            "frame_number": 4,
+            "roi": (5, 7, 30, 20),
+            "motion_area": 125.0,
+            "sharpness": 3.0,
+            "score": 375.0,
+            "timestamp_seconds": 0.4,
+            "selection_reason": "motion_cooldown",
+        }
+
+    class ConfiguredVehicleDetector(FakeVehicleDetector):
+        def vehicle_coordinates(self, frame, conf_threshold=0.35):
+            assert conf_threshold == 0.7
+            return super().vehicle_coordinates(frame, conf_threshold=0.35)
+
+    monkeypatch.setattr(pipeline.cv2, "VideoCapture", lambda _path: FakeCap())
+    monkeypatch.setattr(pipeline, "selected_frames", selected_frames_with_config)
+
+    results = pipeline.process_video(
+        "fake.mp4",
+        roi=(5, 7, 30, 20),
+        save_to_db=False,
+        vehicle_detector=ConfiguredVehicleDetector(),
+        plate_detector=FakePlateDetector(),
+        ocr=FakeOCR(),
+        min_detection_confidence=0.25,
+        motion_threshold=250,
+        cooldown_frames=4,
+        vehicle_confidence=0.7,
+    )
+
+    assert len(results) == 1
+
+
+def test_process_video_from_config_maps_config_to_pipeline(monkeypatch):
+    captured_kwargs = {}
+
+    def fake_process_video(**kwargs):
+        captured_kwargs.update(kwargs)
+        return [{"plate_text": "BA 12 PA 3456"}]
+
+    monkeypatch.setattr(pipeline, "process_video", fake_process_video)
+
+    config = RoadLensConfig.model_validate(
+        {
+            "camera": {
+                "id": "demo_camera_01",
+                "name": "Demo Road Camera",
+                "source_type": "video_file",
+                "source_path": "demo.mp4",
+                "reference_resolution": [1000, 500],
+                "timezone": "Asia/Kathmandu",
+            },
+            "models": {
+                "vehicle_detector": "vehicle.pt",
+                "plate_detector": "plate.pt",
+                "ocr_engine": "paddleocr",
+            },
+            "zones": [
+                {
+                    "id": "roi_main",
+                    "name": "Main ROI",
+                    "type": "detection_roi",
+                    "shape": "rectangle",
+                    "points_normalized": [
+                        [0.1, 0.2],
+                        [0.9, 0.2],
+                        [0.9, 0.8],
+                        [0.1, 0.8],
+                    ],
+                }
+            ],
+            "frame_selection": {
+                "motion_threshold": 200,
+                "cooldown_frames": 7,
+            },
+            "detection": {
+                "vehicle_confidence": 0.6,
+                "plate_confidence": 0.25,
+            },
+            "storage": {
+                "save_to_db": False,
+            },
+        }
+    )
+
+    results = pipeline.process_video_from_config(config)
+
+    assert results == [{"plate_text": "BA 12 PA 3456"}]
+    assert captured_kwargs == {
+        "video_path": "demo.mp4",
+        "model_path": "plate.pt",
+        "vehicle_model_path": "vehicle.pt",
+        "roi": (100, 100, 800, 300),
+        "save_to_db": False,
+        "min_detection_confidence": 0.25,
+        "motion_threshold": 200,
+        "cooldown_frames": 7,
+        "vehicle_confidence": 0.6,
+    }

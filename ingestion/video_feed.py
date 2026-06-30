@@ -18,16 +18,13 @@ def _crop_with_rect(frame, rect):
     return frame[y : y + h, x : x + w], (x, y, w, h)
 
 
-def selected_frames(cap, roi=None):
-    # Threshold for motion detection
-    THRESHOLD = 100
+def selected_frames(cap, roi=None, motion_threshold=100, cooldown_frames=10):
     best_frame = None
     best_frame_number = None
     best_roi = None
     best_metadata = None
     max_score = -1
     frames_since_motion = 0
-    COOLDOWN_LIMIT = 10
     frame_number = -1
     fps = cap.get(cv2.CAP_PROP_FPS) or 0
 
@@ -65,7 +62,7 @@ def selected_frames(cap, roi=None):
 
             for cnt in contours:
                 area = cv2.contourArea(cnt)
-                if area > THRESHOLD:
+                if area > motion_threshold:
                     active_motion = True
                     score = calculate_sharpness(cropped_frame)
                     final_score = score * area
@@ -90,7 +87,7 @@ def selected_frames(cap, roi=None):
             continue
 
         frames_since_motion += 1
-        if best_frame is not None and frames_since_motion > COOLDOWN_LIMIT:
+        if best_frame is not None and frames_since_motion > cooldown_frames:
             yield {
                 "image": best_frame,
                 "frame_number": best_frame_number,

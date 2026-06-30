@@ -11,6 +11,7 @@ from streamlit.elements.lib import image_utils
 from streamlit.elements.lib.layout_utils import LayoutConfig
 
 import pipeline
+from core.config_loader import load_config
 from ingestion.roi import clamp_roi
 
 os.environ.setdefault(
@@ -355,6 +356,18 @@ def render_results(results):
                 )
 
 
+def render_config_preview(config):
+    st.caption(config.camera.name)
+    st.write(f"Source: `{config.camera.source_path}`")
+    st.write(f"Vehicle model: `{config.models.vehicle_detector}`")
+    st.write(f"Plate model: `{config.models.plate_detector}`")
+    st.write(
+        "Frame selection: "
+        f"motion>{config.frame_selection.motion_threshold}, "
+        f"cooldown={config.frame_selection.cooldown_frames}"
+    )
+
+
 if not st.session_state.get("stale_temp_dirs_cleaned"):
     cleanup_stale_temp_dirs()
     st.session_state["stale_temp_dirs_cleaned"] = True
@@ -415,6 +428,22 @@ has_video = video_path is not None
 
 with st.sidebar:
     st.header("Settings")
+    config_path = st.text_input(
+        "Config path",
+        value=st.session_state.get("config_path", "configs/default.yaml"),
+    )
+    if st.button("Load config"):
+        try:
+            st.session_state["loaded_config"] = load_config(config_path)
+            st.session_state["config_path"] = config_path
+        except Exception as e:
+            st.session_state.pop("loaded_config", None)
+            st.error(str(e))
+
+    loaded_config = st.session_state.get("loaded_config")
+    if loaded_config is not None:
+        render_config_preview(loaded_config)
+
     use_full_frame = st.checkbox(
         "Use full frame",
         value=False,
@@ -624,7 +653,12 @@ if has_video:
             refresh_processing_ui(force=force)
 
         def wrap_selected_frames_with_raw_progress(original_selected_frames):
-            def selected_frames_with_raw_progress(cap, roi=None):
+            def selected_frames_with_raw_progress(
+                cap,
+                roi=None,
+                motion_threshold=100,
+                cooldown_frames=10,
+            ):
                 total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 
                 class ProgressCapture:
@@ -657,7 +691,12 @@ if has_video:
 
                 progress_cap = ProgressCapture(cap)
                 try:
-                    yield from original_selected_frames(progress_cap, roi=roi)
+                    yield from original_selected_frames(
+                        progress_cap,
+                        roi=roi,
+                        motion_threshold=motion_threshold,
+                        cooldown_frames=cooldown_frames,
+                    )
                 finally:
                     record_raw_scan_progress(
                         progress_cap.frames_scanned,
