@@ -38,3 +38,7 @@ storage:
   save_to_db: false
   save_evidence_images: false
   output_dir: outputs/evidence
+  review_status_default: pending
+  save_selected_frame: true
+  save_vehicle_crop: true
+  save_plate_crop: true
