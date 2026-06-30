@@ -27,7 +27,8 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
-    op.alter_column("detections", "created_at", server_default=None)
+    if op.get_context().dialect.name != "sqlite":
+        op.alter_column("detections", "created_at", server_default=None)
 
 
 def downgrade() -> None:
