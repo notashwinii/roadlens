@@ -13,6 +13,8 @@ from streamlit.elements.lib.layout_utils import LayoutConfig
 import pipeline
 from core.config_loader import load_config
 from ingestion.roi import clamp_roi
+from scene.scene_builder import build_scene_from_config
+from scene.zone_renderer import draw_zones
 
 os.environ.setdefault(
     "MPLCONFIGDIR",
@@ -361,11 +363,45 @@ def render_config_preview(config):
     st.write(f"Source: `{config.camera.source_path}`")
     st.write(f"Vehicle model: `{config.models.vehicle_detector}`")
     st.write(f"Plate model: `{config.models.plate_detector}`")
+    st.write(f"Zones: `{len(config.zones)}` configured")
     st.write(
         "Frame selection: "
         f"motion>{config.frame_selection.motion_threshold}, "
         f"cooldown={config.frame_selection.cooldown_frames}"
     )
+
+
+def zone_table_rows(zones):
+    return [
+        {
+            "id": zone.id,
+            "name": zone.name,
+            "type": zone.type,
+            "shape": zone.shape,
+            "enabled": zone.enabled,
+            "points": len(zone.points_normalized),
+            "description": zone.description or "",
+        }
+        for zone in zones
+    ]
+
+
+def render_scene_preview(config, scene):
+    st.subheader("Scene config preview")
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Camera", config.camera.id)
+    metric_cols[1].metric("Frame width", scene.frame_width)
+    metric_cols[2].metric("Frame height", scene.frame_height)
+    metric_cols[3].metric("Enabled zones", len(scene.zones))
+
+    preview = draw_zones(scene.first_frame, scene.zones)
+    preview_rgb = cv2.cvtColor(preview, cv2.COLOR_BGR2RGB)
+    st.image(
+        preview_rgb,
+        caption=f"Zones from {st.session_state.get('config_path', 'config')}",
+        use_container_width=True,
+    )
+    st.dataframe(zone_table_rows(config.zones), use_container_width=True)
 
 
 if not st.session_state.get("stale_temp_dirs_cleaned"):
@@ -434,11 +470,21 @@ with st.sidebar:
     )
     if st.button("Load config"):
         try:
-            st.session_state["loaded_config"] = load_config(config_path)
+            loaded_config = load_config(config_path)
+            st.session_state["loaded_config"] = loaded_config
             st.session_state["config_path"] = config_path
         except Exception as e:
             st.session_state.pop("loaded_config", None)
+            st.session_state.pop("loaded_scene", None)
             st.error(str(e))
+        else:
+            try:
+                st.session_state["loaded_scene"] = build_scene_from_config(
+                    loaded_config
+                )
+            except Exception as e:
+                st.session_state.pop("loaded_scene", None)
+                st.warning(f"Config loaded, but scene preview failed: {e}")
 
     loaded_config = st.session_state.get("loaded_config")
     if loaded_config is not None:
@@ -456,6 +502,11 @@ with st.sidebar:
     )
     run_detection = st.button("Run detection", disabled=not has_video, type="primary")
     clear_upload = st.button("Clear uploaded video", disabled=not has_video)
+
+loaded_config = st.session_state.get("loaded_config")
+loaded_scene = st.session_state.get("loaded_scene")
+if loaded_config is not None and loaded_scene is not None:
+    render_scene_preview(loaded_config, loaded_scene)
 
 if clear_upload:
     reset_upload_state(queue_cleanup=True)
