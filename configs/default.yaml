@@ -16,6 +16,8 @@ zones:
     name: Main Detection ROI
     type: detection_roi
     shape: rectangle
+    enabled: true
+    description: Region where motion-triggered ALPR is allowed to run.
     points_normalized:
       - [0.10, 0.25]
       - [0.90, 0.25]

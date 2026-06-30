@@ -2,8 +2,8 @@ import os
 
 import cv2
 
-from core.config_validation import zone_to_roi
 from ingestion.video_feed import selected_frames
+from scene.scene_builder import runtime_roi_for_video
 
 
 def process_video(
@@ -306,11 +306,7 @@ def process_video(
 
 
 def process_video_from_config(config, **overrides):
-    roi = None
-    detection_zones = [zone for zone in config.zones if zone.type == "detection_roi"]
-
-    if detection_zones:
-        roi = zone_to_roi(detection_zones[0], config.camera.reference_resolution)
+    roi = runtime_roi_for_video(config)
 
     process_kwargs = {
         "video_path": config.camera.source_path,

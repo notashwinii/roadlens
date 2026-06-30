@@ -30,6 +30,8 @@ class ZoneConfig(BaseModel):
     ]
     shape: Literal["rectangle", "polygon"] = "polygon"
     points_normalized: list[tuple[float, float]]
+    enabled: bool = True
+    description: str | None = None
 
     @field_validator("points_normalized")
     @classmethod
@@ -53,9 +55,7 @@ class FrameSelectionConfig(BaseModel):
     motion_threshold: int = Field(default=100, ge=1)
     cooldown_frames: int = Field(default=10, ge=0)
     sharpness_method: Literal["laplacian_variance"] = "laplacian_variance"
-    score_method: Literal["motion_area_times_sharpness"] = (
-        "motion_area_times_sharpness"
-    )
+    score_method: Literal["motion_area_times_sharpness"] = "motion_area_times_sharpness"
 
 
 class DetectionConfig(BaseModel):
@@ -73,8 +73,6 @@ class RoadLensConfig(BaseModel):
     camera: CameraConfig
     models: ModelConfig
     zones: list[ZoneConfig] = Field(default_factory=list)
-    frame_selection: FrameSelectionConfig = Field(
-        default_factory=FrameSelectionConfig
-    )
+    frame_selection: FrameSelectionConfig = Field(default_factory=FrameSelectionConfig)
     detection: DetectionConfig = Field(default_factory=DetectionConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
