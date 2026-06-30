@@ -1,9 +1,9 @@
 camera:
-  id: sample_camera_01
-  name: Sample Roadside Camera
+  id: demo_intersection_01
+  name: Demo Intersection Camera
   source_type: video_file
   source_path: test_video.mp4
-  reference_resolution: [1280, 720]
+  reference_resolution: [1920, 1080]
   timezone: Asia/Kathmandu
 
 models:
@@ -12,24 +12,53 @@ models:
   ocr_engine: paddleocr
 
 zones:
-  - id: roi_lane_01
-    name: Lane 1 Detection ROI
+  - id: detection_roi_main
+    name: Main Detection ROI
     type: detection_roi
     shape: rectangle
+    enabled: true
+    description: Region where motion-triggered ALPR is currently allowed to run.
     points_normalized:
-      - [0.05, 0.30]
-      - [0.95, 0.30]
-      - [0.95, 0.95]
-      - [0.05, 0.95]
-  - id: stop_line_01
-    name: Stop Line Placeholder
+      - [0.10, 0.25]
+      - [0.90, 0.25]
+      - [0.90, 0.90]
+      - [0.10, 0.90]
+
+  - id: stop_line_main
+    name: Main Stop Line
     type: stop_line
     shape: polygon
+    enabled: true
+    description: Stop-line zone for future red-light violation rule.
     points_normalized:
-      - [0.20, 0.72]
-      - [0.80, 0.70]
-      - [0.82, 0.76]
-      - [0.22, 0.78]
+      - [0.22, 0.72]
+      - [0.68, 0.70]
+      - [0.69, 0.76]
+      - [0.23, 0.79]
+
+  - id: zebra_crossing_main
+    name: Main Zebra Crossing
+    type: zebra_crossing
+    shape: polygon
+    enabled: true
+    description: Crosswalk area for future pedestrian-phase encroachment rule.
+    points_normalized:
+      - [0.18, 0.58]
+      - [0.72, 0.55]
+      - [0.75, 0.65]
+      - [0.20, 0.68]
+
+  - id: restricted_lane_left
+    name: Restricted Left Lane
+    type: restricted_zone
+    shape: polygon
+    enabled: true
+    description: Restricted lane for future forbidden-zone entry rule.
+    points_normalized:
+      - [0.05, 0.30]
+      - [0.32, 0.28]
+      - [0.38, 0.90]
+      - [0.02, 0.92]
 
 frame_selection:
   motion_threshold: 100
