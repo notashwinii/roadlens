@@ -3,7 +3,18 @@ from types import SimpleNamespace
 import numpy as np
 
 import pipeline
-from core.config_schema import RoadLensConfig
+from core.config_schema import (
+    ConditionConfig,
+    ConditionPredicateConfig,
+    RoadLensConfig,
+    RuleConfig,
+    RuleWhenConfig,
+    ZoneEventPredicateConfig,
+)
+from rules.action_runner import ActionRunner
+from rules.conditions import ConditionProvider
+from rules.rule_engine import RuleEngine
+from scene.runtime_zone import RuntimeZone
 
 
 class FakeCap:
@@ -49,6 +60,53 @@ class FakeOCR:
             segments=["BA", "12", "PA", "3456"],
             segment_confidences=[0.8, 0.85, 0.81, 0.82],
         )
+
+
+def runtime_zone(
+    zone_id="restricted_lane_left",
+    points_pixel=None,
+    enabled=True,
+):
+    return RuntimeZone(
+        id=zone_id,
+        name="Restricted Left Lane",
+        type="restricted_zone",
+        shape="polygon",
+        enabled=enabled,
+        points_normalized=[(0, 0), (1, 0), (1, 1), (0, 1)],
+        points_pixel=points_pixel or [(0, 0), (40, 0), (40, 40), (0, 40)],
+        bounding_rect=(0, 0, 40, 40),
+    )
+
+
+def restricted_zone_rule_engine():
+    rule = RuleConfig(
+        id="restricted_zone_entry",
+        name="Restricted Zone Entry",
+        enabled=True,
+        when=RuleWhenConfig(
+            all=[
+                ZoneEventPredicateConfig(
+                    event="vehicle_intersects_zone",
+                    zone_type="restricted_zone",
+                ),
+                ConditionPredicateConfig(condition="always_forbidden"),
+            ]
+        ),
+        actions=["create_violation_event", "capture_license_plate"],
+    )
+    return RuleEngine(
+        [rule],
+        ConditionProvider(
+            [
+                ConditionConfig(
+                    id="always_forbidden",
+                    name="Always Forbidden",
+                    type="always_true",
+                )
+            ]
+        ),
+    )
 
 
 def fake_selected_frames(
@@ -132,6 +190,8 @@ def test_process_video_excludes_images_by_default(monkeypatch):
         "timestamp_seconds": 0.4,
         "selection_reason": "motion_cooldown",
     }
+    assert result["violation_candidate"] is False
+    assert result["rule_matches"] == []
 
 
 def test_process_video_includes_images_when_requested(monkeypatch):
@@ -265,6 +325,70 @@ def test_process_video_reports_status_events(monkeypatch):
     assert status_events[0]["source_frame_number"] == 4
     assert status_events[1]["vehicle_count"] == 1
     assert status_events[-1]["plate_text"] == "BA 12 PA 3456"
+
+
+def test_process_video_attaches_matching_rule_metadata(monkeypatch):
+    setup_pipeline_fakes(monkeypatch)
+
+    results = pipeline.process_video(
+        "fake.mp4",
+        roi=(5, 7, 30, 20),
+        save_to_db=False,
+        vehicle_detector=FakeVehicleDetector(),
+        plate_detector=FakePlateDetector(),
+        ocr=FakeOCR(),
+        min_detection_confidence=0.25,
+        runtime_zones=[runtime_zone()],
+        rule_engine=restricted_zone_rule_engine(),
+        action_runner=ActionRunner(),
+    )
+
+    assert len(results) == 1
+    assert results[0]["violation_candidate"] is True
+    assert results[0]["rule_matches"] == [
+        {
+            "rule_id": "restricted_zone_entry",
+            "rule_name": "Restricted Zone Entry",
+            "zone_id": "restricted_lane_left",
+            "zone_type": "restricted_zone",
+            "zone_name": "Restricted Left Lane",
+            "event": "vehicle_intersects_zone",
+            "actions": ["create_violation_event", "capture_license_plate"],
+        }
+    ]
+
+
+def test_process_video_skips_plate_detection_when_rules_do_not_match(monkeypatch):
+    setup_pipeline_fakes(monkeypatch)
+
+    class UnexpectedPlateDetector:
+        def license_coordinates(self, frame, min_confidence=0.0):
+            raise AssertionError("plate detection should not run without rule matches")
+
+    status_events = []
+
+    results = pipeline.process_video(
+        "fake.mp4",
+        roi=(5, 7, 30, 20),
+        save_to_db=False,
+        vehicle_detector=FakeVehicleDetector(),
+        plate_detector=UnexpectedPlateDetector(),
+        ocr=FakeOCR(),
+        min_detection_confidence=0.25,
+        runtime_zones=[
+            runtime_zone(points_pixel=[(100, 100), (140, 100), (140, 140), (100, 140)])
+        ],
+        rule_engine=restricted_zone_rule_engine(),
+        action_runner=ActionRunner(),
+        status_callback=status_events.append,
+    )
+
+    assert results == []
+    assert [event["event"] for event in status_events] == [
+        "frame_started",
+        "vehicles_detected",
+        "rule_no_match",
+    ]
 
 
 def test_process_video_reports_no_vehicle_status(monkeypatch):
@@ -407,3 +531,76 @@ def test_process_video_from_config_maps_config_to_pipeline(monkeypatch):
         "cooldown_frames": 7,
         "vehicle_confidence": 0.6,
     }
+
+
+def test_process_video_from_config_builds_rule_runtime(monkeypatch):
+    captured_kwargs = {}
+
+    def fake_process_video(**kwargs):
+        captured_kwargs.update(kwargs)
+        return []
+
+    monkeypatch.setattr(pipeline, "process_video", fake_process_video)
+    monkeypatch.setattr("scene.scene_builder.cv2.VideoCapture", lambda _path: FakeCap())
+
+    config = RoadLensConfig.model_validate(
+        {
+            "camera": {
+                "id": "demo_camera_01",
+                "name": "Demo Road Camera",
+                "source_type": "video_file",
+                "source_path": "demo.mp4",
+                "reference_resolution": [1000, 500],
+            },
+            "models": {
+                "vehicle_detector": "vehicle.pt",
+                "plate_detector": "plate.pt",
+                "ocr_engine": "paddleocr",
+            },
+            "zones": [
+                {
+                    "id": "restricted_lane_left",
+                    "name": "Restricted Left Lane",
+                    "type": "restricted_zone",
+                    "shape": "polygon",
+                    "points_normalized": [
+                        [0.1, 0.2],
+                        [0.9, 0.2],
+                        [0.9, 0.8],
+                        [0.1, 0.8],
+                    ],
+                }
+            ],
+            "conditions": [
+                {
+                    "id": "always_forbidden",
+                    "name": "Always Forbidden",
+                    "type": "always_true",
+                }
+            ],
+            "rules": [
+                {
+                    "id": "restricted_zone_entry",
+                    "name": "Restricted Zone Entry",
+                    "when": {
+                        "all": [
+                            {
+                                "event": "vehicle_intersects_zone",
+                                "zone_type": "restricted_zone",
+                            },
+                            {"condition": "always_forbidden"},
+                        ]
+                    },
+                    "actions": ["create_violation_event"],
+                }
+            ],
+        }
+    )
+
+    results = pipeline.process_video_from_config(config)
+
+    assert results == []
+    assert captured_kwargs["rule_engine"].has_rules is True
+    assert isinstance(captured_kwargs["action_runner"], ActionRunner)
+    assert len(captured_kwargs["runtime_zones"]) == 1
+    assert captured_kwargs["runtime_zones"][0].id == "restricted_lane_left"
