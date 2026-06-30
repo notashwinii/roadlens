@@ -362,6 +362,24 @@ def render_results(results):
                 rule_matches = result.get("rule_matches", [])
                 if result.get("violation_candidate") and rule_matches:
                     st.write("Violation candidate: `Yes`")
+                    violation_event_ids = result.get("violation_event_ids", [])
+                    if violation_event_ids:
+                        st.write(
+                            "Violation event ID(s): "
+                            f"`{', '.join(str(value) for value in violation_event_ids)}`"
+                        )
+                    if result.get("review_status"):
+                        st.write(f"Review status: `{result['review_status']}`")
+
+                    evidence_artifacts = result.get("evidence_artifacts", [])
+                    if evidence_artifacts:
+                        artifact_paths = [
+                            f"`{artifact['type']}`: `{artifact['path']}`"
+                            for artifact in evidence_artifacts
+                        ]
+                        st.write("Evidence artifacts:")
+                        st.write("\n".join(f"- {path}" for path in artifact_paths))
+
                     for match in rule_matches:
                         st.write(
                             "Matched rule: "
@@ -849,6 +867,41 @@ if has_video:
                     runtime_zones=runtime_zones,
                     rule_engine=rule_engine,
                     action_runner=action_runner,
+                    camera_id=(
+                        loaded_config.camera.id
+                        if loaded_config is not None
+                        else "streamlit_upload"
+                    ),
+                    save_evidence_images=(
+                        loaded_config.storage.save_evidence_images
+                        if loaded_config is not None
+                        else False
+                    ),
+                    output_dir=(
+                        loaded_config.storage.output_dir
+                        if loaded_config is not None
+                        else "outputs/evidence"
+                    ),
+                    review_status_default=(
+                        loaded_config.storage.review_status_default
+                        if loaded_config is not None
+                        else "pending"
+                    ),
+                    save_selected_frame=(
+                        loaded_config.storage.save_selected_frame
+                        if loaded_config is not None
+                        else True
+                    ),
+                    save_vehicle_crop=(
+                        loaded_config.storage.save_vehicle_crop
+                        if loaded_config is not None
+                        else True
+                    ),
+                    save_plate_crop=(
+                        loaded_config.storage.save_plate_crop
+                        if loaded_config is not None
+                        else True
+                    ),
                 )
             finally:
                 pipeline.selected_frames = original_selected_frames
