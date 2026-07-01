@@ -6,15 +6,24 @@ services:
     image: readtheroad-app:latest
     container_name: readtheroad-app
     env_file:
-      - ../.env
+      - path: ../.env
+        required: false
     volumes:
+      - ../configs:/app/configs:ro
+      - ../core:/app/core
       - ../ingestion:/app/ingestion
       - ../ocr:/app/ocr
       - ../db:/app/db
+      - ../rules:/app/rules
+      - ../scene:/app/scene
+      - ../evidence:/app/evidence
+      - ../migrations:/app/migrations
       - ../models:/app/models:ro
+      - ../alembic.ini:/app/alembic.ini:ro
       - ../main.py:/app/main.py:ro
       - ../pipeline.py:/app/pipeline.py:ro
       - ../test_video.mp4:/app/test_video.mp4:ro
+      - ../outputs:/app/outputs
     environment:
       PYTHONPATH: /app
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
@@ -30,14 +39,21 @@ services:
     ports:
       - "8501:8501"
     env_file:
-      - ../.env
+      - path: ../.env
+        required: false
     volumes:
+      - ../configs:/app/configs:ro
+      - ../core:/app/core
       - ../ingestion:/app/ingestion
       - ../ocr:/app/ocr
       - ../db:/app/db
+      - ../rules:/app/rules
+      - ../scene:/app/scene
+      - ../evidence:/app/evidence
       - ../models:/app/models:ro
       - ../app.py:/app/app.py:ro
       - ../pipeline.py:/app/pipeline.py:ro
+      - ../outputs:/app/outputs
     environment:
       PYTHONPATH: /app
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
@@ -53,15 +69,24 @@ services:
     ports:
       - "8888:8888"
     env_file:
-      - ../.env
+      - path: ../.env
+        required: false
     volumes:
+      - ../configs:/app/configs:ro
+      - ../core:/app/core
       - ../ingestion:/app/ingestion
       - ../ocr:/app/ocr
       - ../db:/app/db
+      - ../rules:/app/rules
+      - ../scene:/app/scene
+      - ../evidence:/app/evidence
+      - ../migrations:/app/migrations
       - ../models:/app/models:ro
+      - ../alembic.ini:/app/alembic.ini:ro
       - ../main.py:/app/main.py:ro
       - ../pipeline.py:/app/pipeline.py:ro
       - ../test_video.mp4:/app/test_video.mp4:ro
+      - ../outputs:/app/outputs
     environment:
       PYTHONPATH: /app
       PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
