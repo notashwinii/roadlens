@@ -27,13 +27,9 @@ COPY requirements.txt ./
 RUN python -m pip install --upgrade pip setuptools wheel \
     && python -m pip install --no-cache-dir -r requirements.txt
 
-# Copy the runnable project files into the image for plain docker run usage.
-COPY ingestion/ ./ingestion/
-COPY ocr/ ./ocr/
-COPY db/ ./db/
-# COPY src/ ./src/
-COPY models/ ./models/
-COPY app.py main.py pipeline.py test_video.mp4 ./
+# Copy the runnable backend. The backend .dockerignore keeps local caches,
+# private env files, and large throwaway videos out of the image.
+COPY . .
 
 # Document the Streamlit and Jupyter ports used by compose services.
 EXPOSE 8501 8888
