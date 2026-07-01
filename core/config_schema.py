@@ -139,6 +139,12 @@ class StorageConfig(BaseModel):
     save_to_db: bool = False
     save_evidence_images: bool = False
     output_dir: str = "outputs/evidence"
+    review_status_default: Literal["pending", "accepted", "rejected", "corrected"] = (
+        "pending"
+    )
+    save_selected_frame: bool = True
+    save_vehicle_crop: bool = True
+    save_plate_crop: bool = True
 
 
 class RoadLensConfig(BaseModel):

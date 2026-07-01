@@ -145,6 +145,31 @@ Detection rows store:
 - OCR confidence,
 - creation timestamp.
 
+## Violation Evidence Records
+
+When rules are configured and database saving is enabled, RoadLens stores
+rule-matched detections as violation evidence records.
+
+Each violation event stores:
+
+- matched rule,
+- matched zone,
+- vehicle event type,
+- source frame number,
+- timestamp,
+- vehicle bounding box,
+- review status.
+
+Each detection can optionally link to a violation event through
+`violation_event_id`. Evidence image artifacts can be saved under:
+
+```text
+outputs/evidence/<camera_id>/video_<id>/event_<id>/
+```
+
+The default config keeps persistence disabled. `configs/sample_camera.yaml`
+enables database and evidence-image saving for a review-ready demo flow.
+
 Alembic manages schema migrations:
 
 ```bash
