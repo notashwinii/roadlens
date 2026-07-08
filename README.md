@@ -18,6 +18,13 @@ pip install -r requirements.txt
 python main.py --config configs/default.yaml
 ```
 
+API server for the React app:
+
+```bash
+cd backend
+uvicorn api.app:app --reload --host 0.0.0.0 --port 8000
+```
+
 Streamlit demo:
 
 ```bash
@@ -40,12 +47,13 @@ bun install
 bun run dev
 ```
 
-The React dev server runs on `http://localhost:5173` and proxies `/api` to
-`http://localhost:8000`.
+The React dev server runs on `http://localhost:5173` and proxies `/api` to the
+backend API on `http://localhost:8000`.
 
 ## Current Direction
 
 The Python backend remains the source of truth for video processing, OCR,
-rules, evidence persistence, and migrations. The React frontend is the new
-product surface for camera operations, processing jobs, violation review, and
-configuration.
+rules, evidence persistence, API contracts, and migrations. The React frontend is
+the product surface for camera operations, processing jobs, violation review, and
+configuration. Streamlit remains a local demo path while React/API parity is
+completed.

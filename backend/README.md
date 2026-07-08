@@ -31,8 +31,10 @@ If **Save results to database** is disabled in the Streamlit UI, no database con
 | Mode | Command | Notes |
 |---|---|---|
 | CLI local | `python main.py --config configs/default.yaml` | Uses the validated YAML config. |
+| API local | `uvicorn api.app:app --reload --host 0.0.0.0 --port 8000` | Serves `/api` for the React application. |
 | Web local | `streamlit run app.py` | Upload a video through the browser. Opens on `http://localhost:8501` by default. |
 | CLI Docker | `docker compose -f docker/docker-compose.yml up --build app` | Runs `main.py` in the container. |
+| API Docker | `docker compose -f docker/docker-compose.yml up --build api` | Runs FastAPI on port `8000`. |
 | Web Docker | `docker compose -f docker/docker-compose.yml up --build web` | Runs Streamlit on port `8501`. |
 | Jupyter Docker | `docker compose -f docker/docker-compose.yml --profile lab up --build lab` | Optional notebook/lab environment on port `8888`. |
 
@@ -95,6 +97,27 @@ The config controls:
 - storage behavior
 
 Admin UI support will be added later. For now, YAML is the source of truth.
+
+## API Server
+
+The React application talks to the Python backend through `/api` routes. Start
+the API from `backend/`:
+
+```bash
+uvicorn api.app:app --reload --host 0.0.0.0 --port 8000
+```
+
+Initial API routes:
+
+- `GET /api/health`
+- `GET /api/config`
+- `GET /api/zones`
+- `GET /api/rules`
+- `GET /api/evidence`
+- `GET /api/evidence/{event_id}`
+
+The API is intentionally the product boundary for React. Video processing,
+models, rules, and persistence stay in Python.
 
 ## Scene Calibration Preview
 

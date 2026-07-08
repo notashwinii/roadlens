@@ -1,0 +1,96 @@
+import os
+from types import SimpleNamespace
+
+import pytest
+
+fastapi = pytest.importorskip("fastapi")
+sqlalchemy = pytest.importorskip("sqlalchemy")
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+
+
+def test_health_endpoint():
+    from api.app import health
+
+    assert health() == {"status": "ok", "service": "roadlens-api"}
+
+
+def test_config_endpoint_returns_camera_and_detection_settings():
+    from api.app import read_config
+
+    payload = read_config(path="configs/default.yaml")
+
+    assert payload["camera"]["id"] == "demo_camera_01"
+    assert payload["models"]["ocr_engine"] == "paddleocr"
+    assert payload["frame_selection"]["score_method"] == ("motion_area_times_sharpness")
+
+
+def test_evidence_endpoint_serializes_persisted_event():
+    import numpy as np
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from api.app import list_evidence
+    from db.database import Base
+    from db.repository import (
+        save_detection,
+        save_evidence_artifact,
+        save_video,
+        save_violation_event,
+    )
+
+    engine = sqlalchemy.create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+
+    db = session_factory()
+    try:
+        video = save_video(db, "test_video.mp4")
+        rule_match = SimpleNamespace(
+            rule_id="restricted_zone_entry",
+            rule_name="Restricted Zone Entry",
+            event=SimpleNamespace(
+                zone_id="restricted_lane_left",
+                zone_type="restricted_zone",
+                zone_name="Restricted Left Lane",
+                event="vehicle_intersects_zone",
+                frame_number=12,
+                timestamp_seconds=0.5,
+                vehicle_class="car",
+                vehicle_confidence=0.91,
+                vehicle_bbox=(1.0, 2.0, 30.0, 40.0),
+            ),
+        )
+        event = save_violation_event(db, video.id, rule_match)
+        save_detection(
+            db,
+            video.id,
+            "BA 12 PA 3456",
+            (3.0, 4.0, 25.0, 14.0),
+            np.zeros((12, 34, 3), dtype=np.uint8),
+            detector_confidence=0.93,
+            ocr_confidence=0.84,
+            violation_event_id=event.id,
+        )
+        save_evidence_artifact(
+            db,
+            event.id,
+            "plate_crop",
+            "outputs/evidence/demo/video_1/event_1/plate_crop.jpg",
+            width=34,
+            height=12,
+        )
+
+        payload = list_evidence(db=db, limit=50, review_status=None)
+
+        assert payload["count"] == 1
+        item = payload["items"][0]
+        assert item["rule"]["name"] == "Restricted Zone Entry"
+        assert item["detections"][0]["plate_text"] == "BA 12 PA 3456"
+        assert item["artifacts"][0]["url"].endswith("plate_crop.jpg")
+    finally:
+        db.close()

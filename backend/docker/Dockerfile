@@ -31,8 +31,8 @@ RUN python -m pip install --upgrade pip setuptools wheel \
 # private env files, and large throwaway videos out of the image.
 COPY . .
 
-# Document the Streamlit and Jupyter ports used by compose services.
-EXPOSE 8501 8888
+# Document the API, Streamlit, and Jupyter ports used by compose services.
+EXPOSE 8000 8501 8888
 
 # Run the license-plate OCR pipeline by default.
 CMD ["python", "main.py"]

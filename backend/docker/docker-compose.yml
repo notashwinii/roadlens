@@ -1,4 +1,43 @@
 services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: readtheroad-api:latest
+    container_name: readtheroad-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: ../.env
+        required: false
+    volumes:
+      - ../api:/app/api
+      - ../configs:/app/configs:ro
+      - ../core:/app/core
+      - ../ingestion:/app/ingestion
+      - ../ocr:/app/ocr
+      - ../db:/app/db
+      - ../rules:/app/rules
+      - ../scene:/app/scene
+      - ../evidence:/app/evidence
+      - ../migrations:/app/migrations
+      - ../models:/app/models:ro
+      - ../alembic.ini:/app/alembic.ini:ro
+      - ../pipeline.py:/app/pipeline.py:ro
+      - ../outputs:/app/outputs
+    environment:
+      PYTHONPATH: /app
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+    command:
+      [
+        "uvicorn",
+        "api.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
+
   app:
     build:
       context: ..
