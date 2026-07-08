@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import shutil
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Annotated, Any
+from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session, selectinload
@@ -14,6 +17,8 @@ from db.models import ViolationEvent
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_ROOT = BACKEND_ROOT / "configs"
 OUTPUT_ROOT = BACKEND_ROOT / "outputs"
+UPLOAD_ROOT = OUTPUT_ROOT / "uploads"
+ALLOWED_VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv"}
 
 
 app = FastAPI(
@@ -35,6 +40,21 @@ app.add_middleware(
 
 if OUTPUT_ROOT.exists():
     app.mount("/api/artifacts", StaticFiles(directory=OUTPUT_ROOT), name="artifacts")
+
+
+@dataclass(frozen=True)
+class UploadedVideoRecord:
+    id: str
+    filename: str
+    path: str
+    size_bytes: int
+    frame_width: int
+    frame_height: int
+    frame_count: int
+    fps: float | None
+
+
+VIDEO_REGISTRY: dict[str, UploadedVideoRecord] = {}
 
 
 def _model_dump(model: Any) -> dict[str, Any]:
@@ -77,6 +97,57 @@ def _resolve_config_path(config_path: str) -> Path:
     return resolved
 
 
+def _video_metadata(video_path: Path) -> dict[str, int | float | None]:
+    import cv2
+
+    cap = cv2.VideoCapture(str(video_path))
+    try:
+        if not cap.isOpened():
+            raise HTTPException(
+                status_code=400, detail="Could not open uploaded video."
+            )
+
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0)
+
+        return {
+            "frame_width": frame_width,
+            "frame_height": frame_height,
+            "frame_count": frame_count,
+            "fps": fps if fps > 0 else None,
+        }
+    finally:
+        cap.release()
+
+
+def _read_first_frame_jpeg(video_path: Path) -> bytes:
+    import cv2
+
+    cap = cv2.VideoCapture(str(video_path))
+    try:
+        if not cap.isOpened():
+            raise HTTPException(
+                status_code=400, detail="Could not open uploaded video."
+            )
+
+        ok, frame = cap.read()
+        if not ok:
+            raise HTTPException(
+                status_code=422,
+                detail="Could not read the first frame from uploaded video.",
+            )
+
+        encoded, buffer = cv2.imencode(".jpg", frame)
+        if not encoded:
+            raise HTTPException(status_code=500, detail="Could not encode first frame.")
+
+        return buffer.tobytes()
+    finally:
+        cap.release()
+
+
 def get_db() -> Session:
     from db.database import SessionLocal
 
@@ -88,11 +159,64 @@ def get_db() -> Session:
 
 
 DbSession = Annotated[Session, Depends(get_db)]
+VideoUpload = Annotated[UploadFile, File(...)]
 
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "roadlens-api"}
+
+
+@app.post("/api/videos", status_code=201)
+def upload_video(file: VideoUpload) -> dict[str, Any]:
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in ALLOWED_VIDEO_SUFFIXES:
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported video type. Use mp4, mov, avi, or mkv.",
+        )
+
+    video_id = uuid4().hex
+    upload_dir = UPLOAD_ROOT / video_id
+    upload_dir.mkdir(parents=True, exist_ok=False)
+    video_path = upload_dir / f"source{suffix}"
+
+    with video_path.open("wb") as target:
+        shutil.copyfileobj(file.file, target)
+
+    metadata = _video_metadata(video_path)
+    record = UploadedVideoRecord(
+        id=video_id,
+        filename=file.filename or video_path.name,
+        path=str(video_path),
+        size_bytes=video_path.stat().st_size,
+        frame_width=int(metadata["frame_width"] or 0),
+        frame_height=int(metadata["frame_height"] or 0),
+        frame_count=int(metadata["frame_count"] or 0),
+        fps=metadata["fps"],
+    )
+    VIDEO_REGISTRY[video_id] = record
+
+    return asdict(record)
+
+
+@app.get("/api/videos/{video_id}")
+def read_video(video_id: str) -> dict[str, Any]:
+    record = VIDEO_REGISTRY.get(video_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Uploaded video not found.")
+
+    return asdict(record)
+
+
+@app.get("/api/videos/{video_id}/first-frame")
+def read_video_first_frame(video_id: str) -> Response:
+    record = VIDEO_REGISTRY.get(video_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Uploaded video not found.")
+
+    frame = _read_first_frame_jpeg(Path(record.path))
+    return Response(content=frame, media_type="image/jpeg")
 
 
 @app.get("/api/config")
