@@ -1,4 +1,5 @@
 import os
+from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
@@ -23,6 +24,39 @@ def test_config_endpoint_returns_camera_and_detection_settings():
     assert payload["camera"]["id"] == "demo_camera_01"
     assert payload["models"]["ocr_engine"] == "paddleocr"
     assert payload["frame_selection"]["score_method"] == ("motion_area_times_sharpness")
+
+
+def test_upload_video_rejects_unsupported_suffix():
+    from fastapi import HTTPException, UploadFile
+
+    from api.app import upload_video
+
+    with pytest.raises(HTTPException) as exc_info:
+        upload_video(UploadFile(filename="notes.txt", file=BytesIO(b"not video")))
+
+    assert exc_info.value.status_code == 415
+
+
+def test_read_video_uses_upload_registry():
+    from api.app import VIDEO_REGISTRY, UploadedVideoRecord, read_video
+
+    VIDEO_REGISTRY.clear()
+    VIDEO_REGISTRY["video-1"] = UploadedVideoRecord(
+        id="video-1",
+        filename="sample.mp4",
+        path="outputs/uploads/video-1/source.mp4",
+        size_bytes=128,
+        frame_width=1920,
+        frame_height=1080,
+        frame_count=250,
+        fps=25.0,
+    )
+
+    payload = read_video("video-1")
+
+    assert payload["id"] == "video-1"
+    assert payload["filename"] == "sample.mp4"
+    assert payload["frame_width"] == 1920
 
 
 def test_evidence_endpoint_serializes_persisted_event():

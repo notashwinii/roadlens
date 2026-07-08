@@ -110,6 +110,9 @@ uvicorn api.app:app --reload --host 0.0.0.0 --port 8000
 Initial API routes:
 
 - `GET /api/health`
+- `POST /api/videos`
+- `GET /api/videos/{video_id}`
+- `GET /api/videos/{video_id}/first-frame`
 - `GET /api/config`
 - `GET /api/zones`
 - `GET /api/rules`
