@@ -322,14 +322,14 @@ h3 {
 }
 
 .camera-list,
-.job-list,
+.source-list,
 .rule-list {
   display: grid;
   gap: 10px;
 }
 
 .camera-row,
-.job-row,
+.source-row,
 .rule-row,
 .zone-summary {
   border: 1px solid var(--line);
@@ -372,24 +372,20 @@ h3 {
   font-weight: 800;
 }
 
-.job-row {
+.source-row {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) 84px minmax(120px, 0.8fr) 96px;
-  align-items: center;
-  gap: 12px;
-  min-height: 66px;
+  gap: 4px;
+  min-height: 64px;
   padding: 12px;
 }
 
-.job-title {
-  display: grid;
-  gap: 2px;
-}
-
-.job-title span,
-.job-count {
+.source-row span {
   color: var(--muted);
   font-size: 0.86rem;
+}
+
+.source-row strong {
+  overflow-wrap: anywhere;
 }
 
 .badge {
@@ -403,36 +399,19 @@ h3 {
   font-weight: 800;
 }
 
-.status-running,
 .severity-medium {
   background: #fff4d8;
   color: var(--warning);
 }
 
-.status-review,
 .severity-high {
   background: #fde7df;
   color: var(--accent);
 }
 
-.status-queued,
 .severity-low {
   background: #e7f0fb;
   color: var(--info);
-}
-
-.progress {
-  height: 8px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #e5ebe7;
-}
-
-.progress span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--primary);
 }
 
 .violation-table {
@@ -533,14 +512,12 @@ h3 {
 
   .topbar,
   .topbar-actions,
-  .camera-row,
-  .job-row {
+  .camera-row {
     align-items: stretch;
   }
 
   .topbar,
-  .camera-row,
-  .job-row {
+  .camera-row {
     display: grid;
   }
 
@@ -563,9 +540,5 @@ h3 {
 
   .camera-row dl {
     grid-column: 1 / -1;
-  }
-
-  .job-row {
-    grid-template-columns: 1fr;
   }
 }

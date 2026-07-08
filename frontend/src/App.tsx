@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleGauge,
-  Clock3,
   FileVideo,
   Map,
   Play,
@@ -17,7 +16,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
-type JobStatus = "Running" | "Review" | "Queued";
 type Severity = "High" | "Medium" | "Low";
 type LoadState = "idle" | "loading" | "ready" | "error";
 
@@ -173,6 +171,31 @@ function App() {
   const acceptedReviews = snapshot.evidence.filter(
     (item) => item.review_status === "accepted"
   );
+  const sourceRows = useMemo(() => {
+    if (!snapshot.config) {
+      return [];
+    }
+
+    const [width, height] = snapshot.config.camera.reference_resolution;
+    return [
+      {
+        label: "Source",
+        value: snapshot.config.camera.source_path
+      },
+      {
+        label: "Type",
+        value: snapshot.config.camera.source_type
+      },
+      {
+        label: "Resolution",
+        value: `${width} x ${height}`
+      },
+      {
+        label: "Timezone",
+        value: snapshot.config.camera.timezone
+      }
+    ];
+  }, [snapshot.config]);
 
   const cameraRows = useMemo(() => {
     if (!snapshot.config) {
@@ -189,19 +212,6 @@ function App() {
       }
     ];
   }, [activeRules.length, loadState, snapshot.config]);
-
-  const jobRows = useMemo(
-    () => [
-      {
-        id: "API",
-        source: "/api/health",
-        status: loadState === "ready" ? "Review" : "Queued",
-        progress: loadState === "ready" ? 100 : loadState === "loading" ? 50 : 0,
-        detections: snapshot.evidence.length
-      }
-    ],
-    [loadState, snapshot.evidence.length]
-  );
 
   return (
     <main className="app-shell">
@@ -264,7 +274,7 @@ function App() {
             icon={<Activity size={20} aria-hidden="true" />}
             label="Configured cameras"
             value={snapshot.config ? "1" : "0"}
-            detail={snapshot.config?.camera.name ?? "API data pending"}
+            detail={snapshot.config?.camera.name ?? "Backend data pending"}
           />
           <MetricCard
             icon={<FileVideo size={20} aria-hidden="true" />}
@@ -332,29 +342,26 @@ function App() {
             </div>
           </section>
 
-          <section className="panel" id="jobs">
+          <section className="panel" id="source">
             <div className="panel-header">
               <div>
-                <p className="eyebrow">Queue</p>
-                <h2>Processing jobs</h2>
+                <p className="eyebrow">Input</p>
+                <h2>Configured source</h2>
               </div>
-              <Clock3 size={18} aria-hidden="true" />
+              <FileVideo size={18} aria-hidden="true" />
             </div>
 
-            <div className="job-list">
-              {jobRows.map((job) => (
-                <article className="job-row" key={job.id}>
-                  <div className="job-title">
-                    <strong>{job.id}</strong>
-                    <span>{job.source}</span>
+            <div className="source-list">
+              {sourceRows.length > 0 ? (
+                sourceRows.map((row) => (
+                  <div className="source-row" key={row.label}>
+                    <span>{row.label}</span>
+                    <strong>{row.value}</strong>
                   </div>
-                  <StatusBadge status={job.status as JobStatus} />
-                  <div className="progress" aria-label={`${job.progress}% complete`}>
-                    <span style={{ width: `${job.progress}%` }} />
-                  </div>
-                  <span className="job-count">{job.detections} records</span>
-                </article>
-              ))}
+                ))
+              ) : (
+                <EmptyState title="No configured source loaded" />
+              )}
             </div>
           </section>
         </div>
@@ -478,20 +485,16 @@ function ApiStatusBanner({
 
   const text =
     state === "loading"
-      ? "Loading backend API data..."
+      ? "Loading backend data..."
       : message
-        ? `Backend API unavailable: ${message}`
-        : "Backend API data is not loaded.";
+        ? `Backend unavailable: ${message}`
+        : "Backend data is not loaded.";
 
   return <div className={`api-banner api-banner-${state}`}>{text}</div>;
 }
 
 function EmptyState({ title }: { title: string }) {
   return <div className="empty-state">{title}</div>;
-}
-
-function StatusBadge({ status }: { status: JobStatus }) {
-  return <span className={`badge status-${status.toLowerCase()}`}>{status}</span>;
 }
 
 function SeverityBadge({ severity }: { severity: Severity }) {
