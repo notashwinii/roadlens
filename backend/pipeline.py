@@ -2,6 +2,7 @@ import os
 
 import cv2
 
+from core.camera_source import capture_source_from_config
 from ingestion.video_feed import selected_frames
 from rules.action_runner import ActionRunner
 from rules.conditions import ConditionProvider
@@ -30,6 +31,7 @@ def process_video(
     rule_engine=None,
     action_runner=None,
     camera_id=None,
+    camera_profile_id=None,
     save_evidence_images=False,
     output_dir="outputs/evidence",
     review_status_default="pending",
@@ -83,7 +85,7 @@ def process_video(
 
             create_tables()
             db = SessionLocal()
-            video = save_video(db, video_path)
+            video = save_video(db, video_path, camera_id=camera_profile_id)
 
         for index, selected_frame in enumerate(
             selected_frames(
@@ -446,7 +448,7 @@ def process_video_from_config(config, **overrides):
     roi = runtime_roi_for_video(config)
 
     process_kwargs = {
-        "video_path": config.camera.source_path,
+        "video_path": capture_source_from_config(config),
         "model_path": config.models.plate_detector,
         "vehicle_model_path": config.models.vehicle_detector,
         "roi": roi,

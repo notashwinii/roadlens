@@ -1,0 +1,30 @@
+[
+  {
+    "date": "2026-07-18",
+    "scope": "app",
+    "macrostructure": "Workbench",
+    "theme": "design.md",
+    "theme_axes": "light / rounded / field-green",
+    "vibe": "direct traffic operations",
+    "enrichment": "none",
+    "brief": "Shadcn/Radix design system, camera sources, and persisted zone drawing"
+  },
+  {
+    "date": "2026-07-18",
+    "macrostructure": "Compact Auth Split",
+    "theme": "custom",
+    "theme_axes": "light / rounded / field-green",
+    "vibe": "quiet operational confidence",
+    "enrichment": "none",
+    "brief": "Focused RoadLens login and setup with Open Runde and Geist"
+  },
+  {
+    "date": "2026-07-18",
+    "macrostructure": "Workbench",
+    "theme": "custom",
+    "theme_axes": "light / mono / chromatic-green",
+    "vibe": "calm operational precision, field green",
+    "enrichment": "none",
+    "brief": "RoadLens traffic evidence operations dashboard"
+  }
+]

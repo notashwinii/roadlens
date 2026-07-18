@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -8,7 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session, selectinload
 
+from api.product import router as product_router
 from core.config_loader import load_config
+from db.database import create_tables
 from db.models import ViolationEvent
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -16,10 +19,17 @@ CONFIG_ROOT = BACKEND_ROOT / "configs"
 OUTPUT_ROOT = BACKEND_ROOT / "outputs"
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    create_tables()
+    yield
+
+
 app = FastAPI(
     title="RoadLens API",
     version="0.1.0",
     description="Operational API for traffic evidence processing and review.",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -35,6 +45,8 @@ app.add_middleware(
 
 if OUTPUT_ROOT.exists():
     app.mount("/api/artifacts", StaticFiles(directory=OUTPUT_ROOT), name="artifacts")
+
+app.include_router(product_router)
 
 
 def _model_dump(model: Any) -> dict[str, Any]:

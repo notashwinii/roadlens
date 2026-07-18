@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -534,7 +535,9 @@ def test_process_video_from_config_maps_config_to_pipeline(monkeypatch):
 
     assert results == [{"plate_text": "BA 12 PA 3456"}]
     assert captured_kwargs == {
-        "video_path": "demo.mp4",
+        "video_path": str(
+            (Path(__file__).resolve().parents[1] / "demo.mp4").resolve()
+        ),
         "model_path": "plate.pt",
         "vehicle_model_path": "vehicle.pt",
         "roi": (3, 4, 24, 12),

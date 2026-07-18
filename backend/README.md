@@ -16,7 +16,9 @@ The demo uses `test_video.mp4`, a YOLO license-plate model at `models/license_pl
 5. PaddleOCR reads the cropped plate image.
 6. The detected plate text and confidence values are printed in the terminal and persisted to the local DB (`db/`).
 
-Note: To change the CLI demo video, model paths, thresholds, or storage behavior, edit or pass a RoadLens YAML config (see Config-Based Run).
+To change the CLI demo video, model paths, thresholds, or storage behavior, use
+the React product UI and run a persisted camera by database ID, or pass a
+portable RoadLens YAML config.
 
 ## Requirements
 
@@ -32,9 +34,11 @@ If **Save results to database** is disabled in the Streamlit UI, no database con
 |---|---|---|
 | CLI local | `python main.py --config configs/default.yaml` | Uses the validated YAML config. |
 | API local | `uvicorn api.app:app --reload --host 0.0.0.0 --port 8000` | Serves `/api` for the React application. |
+| Worker local | `python -m jobs.worker` | Claims persisted camera-processing jobs. |
 | Web local | `streamlit run app.py` | Upload a video through the browser. Opens on `http://localhost:8501` by default. |
 | CLI Docker | `docker compose -f docker/docker-compose.yml up --build app` | Runs `main.py` in the container. |
 | API Docker | `docker compose -f docker/docker-compose.yml up --build api` | Runs FastAPI on port `8000`. |
+| API + worker Docker | `docker compose -f docker/docker-compose.yml up --build api worker` | Runs FastAPI and background processing. |
 | Web Docker | `docker compose -f docker/docker-compose.yml up --build web` | Runs Streamlit on port `8501`. |
 | Jupyter Docker | `docker compose -f docker/docker-compose.yml --profile lab up --build lab` | Optional notebook/lab environment on port `8888`. |
 
@@ -73,7 +77,29 @@ ruff check .
 pytest
 ```
 
-## Config-Based Run
+## Persisted Product Configuration
+
+The React application now stores users, secure sessions, workspaces,
+memberships, cameras, zones, conditions, rules, and pipeline settings in the
+database. The first browser visit creates the owner account and initial
+workspace; RoadLens does not ship default credentials.
+
+Process a camera configured in the product UI:
+
+```bash
+python main.py --camera-id 1
+```
+
+or:
+
+```bash
+ROADLENS_CAMERA_ID=1 python main.py
+```
+
+Evidence created by this run is linked to the persisted camera and its
+workspace.
+
+## YAML Config-Based Run
 
 RoadLens can be run from a YAML configuration file:
 
@@ -96,7 +122,8 @@ The config controls:
 - detection confidence thresholds
 - storage behavior
 
-Admin UI support will be added later. For now, YAML is the source of truth.
+YAML remains supported as a portable configuration and local-development path.
+Database-backed product configuration is the source of truth for the React app.
 
 ## API Server
 
@@ -115,6 +142,16 @@ Initial API routes:
 - `GET /api/rules`
 - `GET /api/evidence`
 - `GET /api/evidence/{event_id}`
+
+Product routes also cover:
+
+- first-run setup, login, logout, and session discovery
+- workspace creation and settings
+- member creation, removal, and role changes
+- camera creation, editing, deletion, and full typed configuration
+- source-frame snapshots and persisted processing job start/cancel/status
+- zone, condition, and rule creation and updates
+- workspace- and camera-scoped evidence
 
 The API is intentionally the product boundary for React. Video processing,
 models, rules, and persistence stay in Python.

@@ -14,6 +14,7 @@ backend/.pytest_cache/
 backend/.ruff_cache/
 backend/debug_plate_*.jpg
 backend/outputs/zone_preview.*
+backend/uploads/
 
 frontend/node_modules/
 frontend/dist/
