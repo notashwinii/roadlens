@@ -19,8 +19,6 @@ jobs:
     defaults:
       run:
         working-directory: backend
-    env:
-      DATABASE_URL: sqlite:///${{ runner.temp }}/roadlens-ci.sqlite
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -34,8 +32,12 @@ jobs:
         run: ruff check .
       - name: Test
         run: pytest -vv
+        env:
+          DATABASE_URL: sqlite:////tmp/roadlens-tests.sqlite
       - name: Verify migrations
         run: alembic upgrade head
+        env:
+          DATABASE_URL: sqlite:////tmp/roadlens-migrations.sqlite
 
   frontend:
     name: Frontend
