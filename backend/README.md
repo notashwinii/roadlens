@@ -134,6 +134,15 @@ the API from `backend/`:
 uvicorn api.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
+Liveness and database readiness are separate:
+
+- `GET /api/health` confirms the API process is running.
+- `GET /api/ready` confirms the API can query its database.
+
+For production, use the repository-level `compose.production.yml`. It runs
+Alembic to completion before starting the API and worker, and mounts the same
+persistent upload and evidence volumes into both processes.
+
 Initial API routes:
 
 - `GET /api/health`

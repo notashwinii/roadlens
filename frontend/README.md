@@ -22,3 +22,13 @@ Override the API proxy target when needed:
 ```bash
 VITE_API_PROXY_TARGET=http://localhost:8000 bun run dev
 ```
+
+## Container
+
+`frontend/Dockerfile` builds the Vite bundle and serves it through nginx. The
+nginx configuration supports client-side routes, proxies `/api` to the private
+`api:8000` service, permits large camera-video uploads, and exposes `/healthz`
+for container health checks.
+
+Use the repository-level `compose.production.yml` to run this container with
+the database, migration, API, and worker services.
