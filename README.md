@@ -100,6 +100,8 @@ local HTTP-only Compose test, set it to `false`.
 The `ROADLENS_MASTER_KEY` must remain stable across API and worker restarts.
 Changing it makes existing encrypted camera credentials unreadable. Back up the
 `database_data`, `camera_uploads`, and `evidence_outputs` volumes together.
+Set `ROADLENS_PUBLIC_URL` to the HTTPS origin users open in their browser so
+password-reset and workspace-invitation emails contain valid links.
 
 CI in `.github/workflows/ci.yml` runs backend lint/tests, a clean migration,
 frontend lint/build, and Compose validation for every pull request.

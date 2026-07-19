@@ -74,6 +74,13 @@
   margin-block-start: var(--space-lg);
 }
 
+.auth-intro {
+  margin-block-start: var(--space-xs);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
 .auth-card form {
   display: grid;
   gap: var(--space-md);
@@ -103,6 +110,50 @@
   background: var(--color-danger-soft);
   color: var(--color-danger);
   font-size: var(--text-sm);
+}
+
+.form-success {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border: var(--rule-thin) solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.form-success svg {
+  margin-block-start: 0.1rem;
+  flex: 0 0 auto;
+}
+
+.auth-footer {
+  margin-block-start: var(--space-md);
+  padding-block-start: var(--space-md);
+  border-block-start: var(--rule-thin) solid var(--color-rule-2);
+}
+
+.auth-footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-footer button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
 }
 
 .auth-loading {

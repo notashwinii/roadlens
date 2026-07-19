@@ -1,4 +1,11 @@
-import { LoaderCircle, ScanLine, ShieldCheck } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  KeyRound,
+  LoaderCircle,
+  ScanLine,
+  ShieldCheck
+} from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { Button } from "./components/ui/button";
@@ -13,6 +20,7 @@ export type UserSummary = {
   name: string;
   email: string;
   is_active: boolean;
+  mfa_enabled: boolean;
   created_at: string;
 };
 
@@ -69,13 +77,35 @@ export async function productApi<T>(
     const payload = (await response.json().catch(() => null)) as {
       detail?: string;
     } | null;
-    throw new Error(payload?.detail ?? `Request failed with ${response.status}`);
+    throw new ProductApiError(
+      payload?.detail ?? `Request failed with ${response.status}`,
+      response.status
+    );
   }
 
   if (response.status === 204) {
     return undefined as T;
   }
   return response.json() as Promise<T>;
+}
+
+export class ProductApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ProductApiError";
+    this.status = status;
+  }
+}
+
+type AuthRoute = "login" | "forgot" | "reset" | "invitation";
+
+function currentAuthRoute(): AuthRoute {
+  if (window.location.pathname === "/forgot-password") return "forgot";
+  if (window.location.pathname === "/reset-password") return "reset";
+  if (window.location.pathname === "/accept-invitation") return "invitation";
+  return "login";
 }
 
 function ProductApp() {
@@ -211,8 +241,58 @@ function AuthScreen({
   mode: "setup" | "login";
   onAuthenticated: () => Promise<void>;
 }) {
+  const [route, setRoute] = useState<AuthRoute>(currentAuthRoute);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [invitation, setInvitation] = useState<{
+    email: string;
+    name: string;
+    role: string;
+    workspace_name: string;
+    existing_account: boolean;
+    mfa_required: boolean;
+  } | null>(null);
+  const token = new URLSearchParams(window.location.search).get("token") ?? "";
+
+  useEffect(() => {
+    const onPopState = () => {
+      setRoute(currentAuthRoute());
+      setError(null);
+      setSuccess(null);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    if (route !== "invitation" || !token) return;
+    setInvitation(null);
+    setError(null);
+    void productApi<typeof invitation>(`/api/invitations/${token}`)
+      .then(setInvitation)
+      .catch((loadError) =>
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "Could not load invitation"
+        )
+      );
+  }, [route, token]);
+
+  const navigate = (next: AuthRoute) => {
+    const path =
+      next === "forgot"
+        ? "/forgot-password"
+        : next === "login"
+          ? "/"
+          : window.location.pathname;
+    window.history.pushState({}, "", path);
+    setRoute(next);
+    setError(null);
+    setSuccess(null);
+  };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -221,7 +301,40 @@ function AuthScreen({
     const form = new FormData(event.currentTarget);
 
     try {
-      if (mode === "setup") {
+      if (route === "forgot") {
+        const result = await productApi<{ message: string }>(
+          "/api/auth/password-reset/request",
+          {
+            method: "POST",
+            body: JSON.stringify({ email: form.get("email") })
+          }
+        );
+        setSuccess(result.message);
+      } else if (route === "reset") {
+        const result = await productApi<{ message: string }>(
+          "/api/auth/password-reset/confirm",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              token,
+              password: form.get("password")
+            })
+          }
+        );
+        window.history.replaceState({}, "", "/");
+        setRoute("login");
+        setSuccess(result.message);
+      } else if (route === "invitation") {
+        await productApi("/api/auth/invitations/accept", {
+          method: "POST",
+          body: JSON.stringify({
+            token,
+            password: form.get("password"),
+            mfa_code: invitation?.mfa_required ? form.get("mfa_code") : null
+          })
+        });
+        await onAuthenticated();
+      } else if (mode === "setup") {
         await productApi("/api/auth/setup", {
           method: "POST",
           body: JSON.stringify({
@@ -237,12 +350,24 @@ function AuthScreen({
           method: "POST",
           body: JSON.stringify({
             email: form.get("email"),
-            password: form.get("password")
+            password: form.get("password"),
+            mfa_code: mfaRequired ? form.get("mfa_code") : null
           })
         });
+        setMfaRequired(false);
       }
-      await onAuthenticated();
+      if (route === "login") {
+        await onAuthenticated();
+      }
     } catch (submitError) {
+      if (
+        submitError instanceof ProductApiError &&
+        submitError.status === 428
+      ) {
+        setMfaRequired(true);
+        setError(null);
+        return;
+      }
       setError(
         submitError instanceof Error ? submitError.message : "Authentication failed"
       );
@@ -251,23 +376,48 @@ function AuthScreen({
     }
   };
 
+  const isSetup = mode === "setup" && route === "login";
+  const title =
+    route === "forgot"
+      ? "Reset password"
+      : route === "reset"
+        ? "Choose a new password"
+        : route === "invitation"
+          ? invitation
+            ? `Join ${invitation.workspace_name}`
+            : "Open invitation"
+          : isSetup
+            ? "Create workspace"
+            : mfaRequired
+              ? "Verify it’s you"
+              : "Sign in";
+
   return (
     <main className="auth-shell">
       <div className="auth-frame">
         <section className="auth-card">
           <header>
             <span className="auth-brand">
-            <span className="auth-brand-mark" aria-hidden="true">
-              <ScanLine size={20} />
-            </span>
+              <span className="auth-brand-mark" aria-hidden="true">
+                {mfaRequired ? <KeyRound size={20} /> : <ScanLine size={20} />}
+              </span>
               <strong>RoadLens</strong>
-          </span>
-            <h2>
-              {mode === "setup" ? "Create workspace" : "Sign in"}
-            </h2>
+            </span>
+            <h2>{title}</h2>
+            {route === "invitation" && invitation ? (
+              <p className="auth-intro">
+                {invitation.name}, you’ve been invited as {invitation.role}.
+              </p>
+            ) : null}
           </header>
           <form onSubmit={submit}>
-            {mode === "setup" ? (
+            {success ? (
+              <div className="form-success" role="status">
+                <CheckCircle2 size={17} aria-hidden="true" />
+                <span>{success}</span>
+              </div>
+            ) : null}
+            {isSetup ? (
               <>
                 <Label>
                   Your name
@@ -283,35 +433,97 @@ function AuthScreen({
                 </Label>
               </>
             ) : null}
-            <Label>
-              Email
-              <Input name="email" type="email" autoComplete="email" required />
-            </Label>
-            <Label>
-              Password
-              <Input
-                name="password"
-                type="password"
-                autoComplete={mode === "setup" ? "new-password" : "current-password"}
-                required
-                minLength={8}
-              />
-            </Label>
+            {route === "login" || route === "forgot" ? (
+              <Label>
+                Email
+                <Input name="email" type="email" autoComplete="email" required />
+              </Label>
+            ) : null}
+            {route !== "forgot" && (route !== "invitation" || invitation) ? (
+              <Label>
+                {route === "invitation" && invitation?.existing_account
+                  ? "Your RoadLens password"
+                  : route === "reset" || route === "invitation" || isSetup
+                    ? "Password"
+                    : "Password"}
+                <Input
+                  name="password"
+                  type="password"
+                  autoComplete={
+                    route === "reset" ||
+                    (route === "invitation" && !invitation?.existing_account) ||
+                    isSetup
+                      ? "new-password"
+                      : "current-password"
+                  }
+                  required
+                  minLength={8}
+                />
+              </Label>
+            ) : null}
+            {mfaRequired && route === "login" ? (
+              <Label>
+                Authentication or recovery code
+                <Input
+                  name="mfa_code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                  autoFocus
+                />
+              </Label>
+            ) : null}
+            {route === "invitation" && invitation?.mfa_required ? (
+              <Label>
+                Authentication or recovery code
+                <Input
+                  name="mfa_code"
+                  autoComplete="one-time-code"
+                  required
+                />
+              </Label>
+            ) : null}
             {error ? <p className="form-error">{error}</p> : null}
-            <Button
-              className="auth-submit"
-              type="submit"
-              disabled={submitting}
-              data-state={submitting ? "loading" : undefined}
-            >
-              {submitting ? <LoaderCircle size={16} aria-hidden="true" /> : null}
-              {submitting
-                ? "Please wait"
-                : mode === "setup"
-                  ? "Create workspace"
-                  : "Sign in"}
-            </Button>
+            {route !== "invitation" || invitation ? (
+              <Button
+                className="auth-submit"
+                type="submit"
+                disabled={submitting || (route === "forgot" && success != null)}
+                data-state={submitting ? "loading" : undefined}
+              >
+                {submitting ? <LoaderCircle size={16} aria-hidden="true" /> : null}
+                {submitting
+                  ? "Please wait"
+                  : route === "forgot"
+                    ? success
+                      ? "Email sent"
+                      : "Send reset link"
+                    : route === "reset"
+                      ? "Update password"
+                      : route === "invitation"
+                        ? "Accept invitation"
+                        : isSetup
+                          ? "Create workspace"
+                          : mfaRequired
+                            ? "Verify and sign in"
+                            : "Sign in"}
+              </Button>
+            ) : null}
           </form>
+          {!isSetup ? (
+            <footer className="auth-footer">
+              {route === "login" && !mfaRequired ? (
+                <button type="button" onClick={() => navigate("forgot")}>
+                  Forgot password?
+                </button>
+              ) : route !== "login" ? (
+                <button type="button" onClick={() => navigate("login")}>
+                  <ArrowLeft size={14} aria-hidden="true" />
+                  Back to sign in
+                </button>
+              ) : null}
+            </footer>
+          ) : null}
         </section>
       </div>
     </main>

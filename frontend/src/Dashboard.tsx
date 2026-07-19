@@ -10,6 +10,7 @@ import {
   Gauge,
   LayoutDashboard,
   LogOut,
+  Mail,
   Map,
   Play,
   Plus,
@@ -1707,6 +1708,14 @@ type MemberSummary = UserSummary & {
   role: "owner" | "admin" | "operator" | "viewer";
 };
 
+type InvitationSummary = {
+  id: number;
+  email: string;
+  name: string;
+  role: "owner" | "admin" | "operator" | "viewer";
+  expires_at: string;
+};
+
 function TeamManager({
   currentUser,
   workspace,
@@ -1717,7 +1726,9 @@ function TeamManager({
   onChanged: () => Promise<void>;
 }) {
   const [members, setMembers] = useState<MemberSummary[]>([]);
+  const [invitations, setInvitations] = useState<InvitationSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const canManage = workspace?.role === "owner" || workspace?.role === "admin";
 
@@ -1729,148 +1740,385 @@ function TeamManager({
     setMembers(payload.items);
   }, [workspace]);
 
+  const loadInvitations = useCallback(async () => {
+    if (!workspace || !canManage) {
+      setInvitations([]);
+      return;
+    }
+    const payload = await productApi<{ items: InvitationSummary[] }>(
+      `/api/workspaces/${workspace.id}/invitations`
+    );
+    setInvitations(payload.items);
+  }, [canManage, workspace]);
+
   useEffect(() => {
-    void loadMembers().catch((loadError) =>
+    void Promise.all([loadMembers(), loadInvitations()]).catch((loadError) =>
       setError(loadError instanceof Error ? loadError.message : "Could not load team")
     );
-  }, [loadMembers]);
+  }, [loadInvitations, loadMembers]);
 
   if (!workspace) {
     return <InlineNotice text="Create a workspace before adding team members." />;
   }
 
-  const addMember = async (event: FormEvent<HTMLFormElement>) => {
+  const inviteMember = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setBusy(true);
     setError(null);
     const form = new FormData(event.currentTarget);
     try {
-      await productApi(`/api/workspaces/${workspace.id}/members`, {
+      await productApi(`/api/workspaces/${workspace.id}/invitations`, {
         method: "POST",
         body: JSON.stringify({
           name: form.get("name"),
           email: form.get("email"),
-          password: form.get("password"),
           role: form.get("role")
         })
       });
       event.currentTarget.reset();
-      await loadMembers();
-      await onChanged();
+      setSuccess(`Invitation sent to ${String(form.get("email"))}.`);
+      await loadInvitations();
     } catch (addError) {
-      setError(addError instanceof Error ? addError.message : "Could not add member");
+      setError(
+        addError instanceof Error ? addError.message : "Could not send invitation"
+      );
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <section className="management-grid">
-      <section className="surface management-list">
-        <PanelHeader
-          title="Workspace members"
-          description={`${members.length} user${members.length === 1 ? "" : "s"}`}
-        />
-        <div className="member-list">
-          {members.map((member) => (
-            <article className="member-row" key={member.id}>
-              <span className="member-avatar" aria-hidden="true">
-                {initials(member.name)}
-              </span>
-              <span>
-                <strong>
-                  {member.name}
-                  {member.id === currentUser.id ? " · You" : ""}
-                </strong>
-                <small>{member.email}</small>
-              </span>
-              <select
-                aria-label={`Role for ${member.name}`}
-                value={member.role}
-                disabled={!canManage}
-                onChange={async (event) => {
-                  await productApi(
-                    `/api/workspaces/${workspace.id}/members/${member.id}`,
-                    {
-                      method: "PATCH",
-                      body: JSON.stringify({ role: event.target.value })
-                    }
-                  );
-                  await loadMembers();
-                  await onChanged();
-                }}
-              >
-                <option value="owner">Owner</option>
-                <option value="admin">Admin</option>
-                <option value="operator">Operator</option>
-                <option value="viewer">Viewer</option>
-              </select>
-              {canManage && member.id !== currentUser.id ? (
-                <button
-                  className="icon-button subtle-danger"
-                  type="button"
-                  aria-label={`Remove ${member.name}`}
-                  onClick={async () => {
-                    if (!window.confirm(`Remove ${member.name} from this workspace?`))
-                      return;
+    <div className="team-settings">
+      <section className="management-grid">
+        <section className="surface management-list">
+          <PanelHeader
+            title="Workspace members"
+            description={`${members.length} user${members.length === 1 ? "" : "s"}`}
+          />
+          <div className="member-list">
+            {members.map((member) => (
+              <article className="member-row" key={member.id}>
+                <span className="member-avatar" aria-hidden="true">
+                  {initials(member.name)}
+                </span>
+                <span>
+                  <strong>
+                    {member.name}
+                    {member.id === currentUser.id ? " · You" : ""}
+                  </strong>
+                  <small>{member.email}</small>
+                </span>
+                <select
+                  aria-label={`Role for ${member.name}`}
+                  value={member.role}
+                  disabled={!canManage}
+                  onChange={async (event) => {
                     await productApi(
                       `/api/workspaces/${workspace.id}/members/${member.id}`,
-                      { method: "DELETE" }
+                      {
+                        method: "PATCH",
+                        body: JSON.stringify({ role: event.target.value })
+                      }
                     );
                     await loadMembers();
                     await onChanged();
                   }}
                 >
-                  <Trash2 size={15} aria-hidden="true" />
-                </button>
-              ) : null}
-            </article>
-          ))}
-        </div>
+                  <option value="owner">Owner</option>
+                  <option value="admin">Admin</option>
+                  <option value="operator">Operator</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+                {canManage && member.id !== currentUser.id ? (
+                  <button
+                    className="icon-button subtle-danger"
+                    type="button"
+                    aria-label={`Remove ${member.name}`}
+                    onClick={async () => {
+                      if (!window.confirm(`Remove ${member.name} from this workspace?`))
+                        return;
+                      await productApi(
+                        `/api/workspaces/${workspace.id}/members/${member.id}`,
+                        { method: "DELETE" }
+                      );
+                      await loadMembers();
+                      await onChanged();
+                    }}
+                  >
+                    <Trash2 size={15} aria-hidden="true" />
+                  </button>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+        <section className="surface">
+          <PanelHeader
+            title="Invite teammate"
+            description="They’ll choose their own password"
+          />
+          <form className="management-form" onSubmit={inviteMember}>
+            <label>
+              Full name
+              <input name="name" required minLength={2} disabled={!canManage} />
+            </label>
+            <label>
+              Email
+              <input name="email" type="email" required disabled={!canManage} />
+            </label>
+            <label>
+              Role
+              <select name="role" defaultValue="operator" disabled={!canManage}>
+                <option value="admin">Admin</option>
+                <option value="operator">Operator</option>
+                <option value="viewer">Viewer</option>
+              </select>
+            </label>
+            {success ? <p className="form-success compact">{success}</p> : null}
+            {error ? <p className="form-error">{error}</p> : null}
+            <button
+              className="button button-primary"
+              type="submit"
+              disabled={busy || !canManage}
+            >
+              <Mail size={15} aria-hidden="true" />
+              Send invitation
+            </button>
+          </form>
+          {invitations.length > 0 ? (
+            <div className="pending-invites">
+              <span className="eyebrow">Pending</span>
+              {invitations.map((item) => (
+                <div className="pending-invite" key={item.id}>
+                  <span>
+                    <strong>{item.name}</strong>
+                    <small>{item.email} · {item.role}</small>
+                  </span>
+                  <button
+                    className="icon-button subtle-danger"
+                    type="button"
+                    aria-label={`Revoke invitation for ${item.email}`}
+                    onClick={async () => {
+                      await productApi(
+                        `/api/workspaces/${workspace.id}/invitations/${item.id}`,
+                        { method: "DELETE" }
+                      );
+                      await loadInvitations();
+                    }}
+                  >
+                    <Trash2 size={15} aria-hidden="true" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </section>
       </section>
-      <section className="surface">
-        <PanelHeader
-          title="Add user"
-          description="Create an account and grant workspace access"
-        />
-        <form className="management-form" onSubmit={addMember}>
+      <AccountSecurity currentUser={currentUser} onChanged={onChanged} />
+    </div>
+  );
+}
+
+function AccountSecurity({
+  currentUser,
+  onChanged
+}: {
+  currentUser: UserSummary;
+  onChanged: () => Promise<void>;
+}) {
+  const [status, setStatus] = useState<{
+    mfa_enabled: boolean;
+    recovery_codes_remaining: number;
+  } | null>(null);
+  const [enrollment, setEnrollment] = useState<{
+    secret: string;
+    provisioning_uri: string;
+  } | null>(null);
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadSecurity = useCallback(async () => {
+    setStatus(await productApi("/api/auth/security"));
+  }, []);
+
+  useEffect(() => {
+    void loadSecurity().catch((loadError) =>
+      setError(
+        loadError instanceof Error ? loadError.message : "Could not load security"
+      )
+    );
+  }, [loadSecurity]);
+
+  return (
+    <section className="surface account-security">
+      <PanelHeader
+        title="Account security"
+        description="Protect your account with an authenticator app"
+      />
+      <div className="security-summary">
+        <span className="security-icon" aria-hidden="true">
+          <ShieldCheck size={19} />
+        </span>
+        <span>
+          <strong>
+            Two-factor authentication {status?.mfa_enabled ? "is on" : "is off"}
+          </strong>
+          <small>
+            {status?.mfa_enabled
+              ? `${status.recovery_codes_remaining} recovery codes remaining`
+              : `Signed in as ${currentUser.email}`}
+          </small>
+        </span>
+        {!status?.mfa_enabled && !enrollment ? (
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={async () => {
+              setError(null);
+              setEnrollment(await productApi("/api/auth/mfa/enroll", { method: "POST" }));
+            }}
+          >
+            Set up MFA
+          </button>
+        ) : null}
+      </div>
+      {enrollment ? (
+        <form
+          className="security-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            try {
+              const result = await productApi<{
+                recovery_codes: string[];
+              }>("/api/auth/mfa/confirm", {
+                method: "POST",
+                body: JSON.stringify({ code: form.get("code") })
+              });
+              setRecoveryCodes(result.recovery_codes);
+              setEnrollment(null);
+              await loadSecurity();
+              await onChanged();
+            } catch (confirmError) {
+              setError(
+                confirmError instanceof Error
+                  ? confirmError.message
+                  : "Could not enable MFA"
+              );
+            }
+          }}
+        >
+          <div className="setup-key">
+            <span>Add this setup key to your authenticator app</span>
+            <code>{enrollment.secret}</code>
+          </div>
           <label>
-            Full name
-            <input name="name" required minLength={2} disabled={!canManage} />
-          </label>
-          <label>
-            Email
-            <input name="email" type="email" required disabled={!canManage} />
-          </label>
-          <label>
-            Temporary password
+            6-digit code
             <input
-              name="password"
-              type="password"
-              minLength={8}
+              name="code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              minLength={6}
+              maxLength={6}
               required
-              disabled={!canManage}
             />
           </label>
-          <label>
-            Role
-            <select name="role" defaultValue="operator" disabled={!canManage}>
-              <option value="admin">Admin</option>
-              <option value="operator">Operator</option>
-              <option value="viewer">Viewer</option>
-            </select>
-          </label>
-          {error ? <p className="form-error">{error}</p> : null}
-          <button
-            className="button button-primary"
-            type="submit"
-            disabled={busy || !canManage}
-          >
-            <Plus size={15} aria-hidden="true" />
-            Add user
+          <button className="button button-primary" type="submit">
+            Verify and enable
           </button>
         </form>
-      </section>
+      ) : null}
+      {recoveryCodes.length > 0 ? (
+        <div className="recovery-codes" role="status">
+          <strong>Save these recovery codes now</strong>
+          <span>Each code can be used once. Store them in a password manager.</span>
+          <div>
+            {recoveryCodes.map((code) => <code key={code}>{code}</code>)}
+          </div>
+        </div>
+      ) : null}
+      {status?.mfa_enabled ? (
+        <details className="security-actions">
+          <summary>Manage MFA</summary>
+          <form
+            className="security-form security-form-simple"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              try {
+                const result = await productApi<{ recovery_codes: string[] }>(
+                  "/api/auth/mfa/recovery-codes",
+                  {
+                    method: "POST",
+                    body: JSON.stringify({ code: form.get("code") })
+                  }
+                );
+                setRecoveryCodes(result.recovery_codes);
+                event.currentTarget.reset();
+                await loadSecurity();
+              } catch (regenerateError) {
+                setError(
+                  regenerateError instanceof Error
+                    ? regenerateError.message
+                    : "Could not create recovery codes"
+                );
+              }
+            }}
+          >
+            <label>
+              Authentication code
+              <input name="code" autoComplete="one-time-code" required />
+            </label>
+            <button className="button button-secondary" type="submit">
+              Replace recovery codes
+            </button>
+          </form>
+          <form
+            className="security-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              try {
+                await productApi("/api/auth/mfa/disable", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    password: form.get("password"),
+                    code: form.get("code")
+                  })
+                });
+                setRecoveryCodes([]);
+                await loadSecurity();
+                await onChanged();
+              } catch (disableError) {
+                setError(
+                  disableError instanceof Error
+                    ? disableError.message
+                    : "Could not disable MFA"
+                );
+              }
+            }}
+          >
+            <label>
+              Current password
+              <input
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                minLength={8}
+                required
+              />
+            </label>
+            <label>
+              Authentication or recovery code
+              <input name="code" autoComplete="one-time-code" required />
+            </label>
+            <button className="button button-danger" type="submit">
+              Disable MFA
+            </button>
+          </form>
+        </details>
+      ) : null}
+      {error ? <p className="form-error">{error}</p> : null}
     </section>
   );
 }

@@ -1,4 +1,3 @@
-import asyncio
 import base64
 import os
 from http.cookies import SimpleCookie
@@ -80,13 +79,11 @@ def test_first_run_setup_creates_owner_workspace_without_demo_camera(
         backend_root = product_api.BACKEND_ROOT
         monkeypatch.setattr(product_api, "BACKEND_ROOT", tmp_path)
         upload = UploadFile(filename="traffic.mp4", file=BytesIO(b"video-bytes"))
-        uploaded = asyncio.run(
-            product_api.upload_camera_video(
-                result["workspace_id"],
-                db,
-                upload,
-                token,
-            )
+        uploaded = product_api.upload_camera_video(
+            result["workspace_id"],
+            db,
+            upload,
+            token,
         )
         assert uploaded["file_name"] == "traffic.mp4"
         assert (tmp_path / uploaded["source_path"]).read_bytes() == b"video-bytes"
@@ -109,12 +106,15 @@ def test_first_run_setup_creates_owner_workspace_without_demo_camera(
             token,
         )
         assert job["status"] == "queued"
-        assert list_processing_jobs(
-            result["workspace_id"],
-            db,
-            token,
-            camera_id=camera["id"],
-        )["items"][0]["id"] == job["id"]
+        assert (
+            list_processing_jobs(
+                result["workspace_id"],
+                db,
+                token,
+                camera_id=camera["id"],
+            )["items"][0]["id"]
+            == job["id"]
+        )
         canceled = cancel_processing_job(
             result["workspace_id"],
             job["id"],
