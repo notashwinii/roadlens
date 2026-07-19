@@ -103,6 +103,22 @@ Changing it makes existing encrypted camera credentials unreadable. Back up the
 Set `ROADLENS_PUBLIC_URL` to the HTTPS origin users open in their browser so
 password-reset and workspace-invitation emails contain valid links.
 
+### OpenID Connect SSO
+
+RoadLens supports a configurable OpenID Connect provider using the
+authorization-code flow with state, nonce, and PKCE. Set
+`ROADLENS_OIDC_ISSUER`, `ROADLENS_OIDC_CLIENT_ID`, and the provider name and
+client secret in `.env.production`. Register this callback with the provider:
+
+```text
+https://roadlens.example.com/api/auth/sso/callback
+```
+
+SSO links a verified provider email to an existing RoadLens account. Users with
+pending workspace invitations are provisioned automatically when they sign in.
+Set `ROADLENS_OIDC_AUTO_PROVISION=true` only when any verified identity from the
+provider should be allowed to create a RoadLens account.
+
 CI in `.github/workflows/ci.yml` runs backend lint/tests, a clean migration,
 frontend lint/build, and Compose validation for every pull request.
 

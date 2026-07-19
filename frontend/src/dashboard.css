@@ -739,6 +739,31 @@ h3 {
   padding: var(--space-md);
 }
 
+.linked-identity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-block-start: var(--rule-thin) solid var(--color-rule-2);
+  background: var(--color-paper-2);
+}
+
+.linked-identity strong,
+.linked-identity small {
+  display: block;
+}
+
+.linked-identity strong {
+  font-size: var(--text-sm);
+}
+
+.linked-identity small {
+  margin-block-start: var(--space-3xs);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
 .security-icon {
   display: inline-grid;
   place-items: center;

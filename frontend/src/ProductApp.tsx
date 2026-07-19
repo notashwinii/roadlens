@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Building2,
   CheckCircle2,
   KeyRound,
   LoaderCircle,
@@ -246,6 +247,10 @@ function AuthScreen({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [mfaRequired, setMfaRequired] = useState(false);
+  const [ssoConfig, setSsoConfig] = useState<{
+    enabled: boolean;
+    provider_name: string | null;
+  } | null>(null);
   const [invitation, setInvitation] = useState<{
     email: string;
     name: string;
@@ -280,6 +285,30 @@ function AuthScreen({
         )
       );
   }, [route, token]);
+
+  useEffect(() => {
+    if (route !== "login" || mode === "setup") return;
+    void productApi<{
+      enabled: boolean;
+      provider_name: string | null;
+    }>("/api/auth/sso/config")
+      .then(setSsoConfig)
+      .catch(() => setSsoConfig({ enabled: false, provider_name: null }));
+
+    const url = new URL(window.location.href);
+    const ssoError = url.searchParams.get("sso_error");
+    if (ssoError) {
+      setError(
+        "Single sign-on failed. Try again or sign in with your password."
+      );
+      url.searchParams.delete("sso_error");
+      window.history.replaceState(
+        {},
+        "",
+        `${url.pathname}${url.search}${url.hash}`
+      );
+    }
+  }, [mode, route]);
 
   const navigate = (next: AuthRoute) => {
     const path =
@@ -510,6 +539,23 @@ function AuthScreen({
               </Button>
             ) : null}
           </form>
+          {route === "login" &&
+          !isSetup &&
+          !mfaRequired &&
+          ssoConfig?.enabled ? (
+            <div className="auth-sso">
+              <span>or</span>
+              <Button
+                className="auth-sso-button"
+                type="button"
+                variant="outline"
+                onClick={() => window.location.assign("/api/auth/sso/login")}
+              >
+                <Building2 size={16} aria-hidden="true" />
+                Continue with {ssoConfig.provider_name ?? "SSO"}
+              </Button>
+            </div>
+          ) : null}
           {!isSetup ? (
             <footer className="auth-footer">
               {route === "login" && !mfaRequired ? (

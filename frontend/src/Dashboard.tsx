@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  Building2,
   Camera,
   CheckCircle2,
   ChevronRight,
@@ -1929,6 +1930,8 @@ function AccountSecurity({
   const [status, setStatus] = useState<{
     mfa_enabled: boolean;
     recovery_codes_remaining: number;
+    sso_linked: boolean;
+    sso_provider_name: string | null;
   } | null>(null);
   const [enrollment, setEnrollment] = useState<{
     secret: string;
@@ -1982,6 +1985,20 @@ function AccountSecurity({
           </button>
         ) : null}
       </div>
+      {status?.sso_linked ? (
+        <div className="linked-identity">
+          <span className="security-icon" aria-hidden="true">
+            <Building2 size={19} />
+          </span>
+          <span>
+            <strong>Single sign-on is linked</strong>
+            <small>
+              {status.sso_provider_name ?? "Your identity provider"} can sign in
+              to this account.
+            </small>
+          </span>
+        </div>
+      ) : null}
       {enrollment ? (
         <form
           className="security-form"

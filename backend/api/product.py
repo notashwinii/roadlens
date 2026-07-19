@@ -23,11 +23,22 @@ from fastapi import (
     Response,
     UploadFile,
 )
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
 from api.email_delivery import send_email
 from api.mfa import generate_totp_secret, provisioning_uri, verify_totp
+from api.oidc import (
+    OidcError,
+    authorization_url,
+    discovery_document,
+    exchange_code,
+    oidc_config,
+    pkce_challenge,
+    validate_id_token,
+)
 from api.security import (
     SESSION_DAYS,
     create_session_token,
@@ -51,6 +62,7 @@ from db.models import (
     Camera,
     Invitation,
     ProcessingJob,
+    SsoIdentity,
     User,
     Video,
     ViolationEvent,
@@ -758,6 +770,226 @@ def login(
     return {"user": _user_payload(user)}
 
 
+@router.get("/auth/sso/config")
+def sso_public_config() -> dict[str, Any]:
+    try:
+        config = oidc_config()
+    except OidcError:
+        logger.exception("OIDC configuration is invalid")
+        return {"enabled": False, "provider_name": None}
+    return {
+        "enabled": config is not None,
+        "provider_name": config.provider_name if config else None,
+    }
+
+
+@router.get("/auth/sso/login")
+def begin_sso_login(request: Request, db: DbSession) -> RedirectResponse:
+    config = oidc_config()
+    if config is None:
+        raise HTTPException(status_code=404, detail="Single sign-on is not configured.")
+    _auth_limiter.check(
+        f"sso:ip:{_request_ip(request)}", limit=30, window_seconds=15 * 60
+    )
+    try:
+        metadata = discovery_document(config.issuer)
+    except OidcError as error:
+        logger.warning("OIDC discovery failed: %s", error)
+        raise HTTPException(
+            status_code=503,
+            detail="Single sign-on is temporarily unavailable.",
+        ) from error
+
+    nonce = secrets.token_urlsafe(32)
+    code_verifier = secrets.token_urlsafe(48)
+    state = secrets.token_urlsafe(32)
+    state_hash = hash_session_token(state)
+    try:
+        encrypted_state = encrypt_secret(
+            json.dumps(
+                {
+                    "nonce": nonce,
+                    "code_verifier": code_verifier,
+                }
+            ),
+            f"oidc-state:{state_hash}",
+        )
+    except RuntimeError as state_error:
+        raise HTTPException(status_code=503, detail=str(state_error)) from state_error
+    db.add(
+        ActionToken(
+            token_hash=state_hash,
+            user_id=None,
+            purpose="oidc_state",
+            payload_json=encrypted_state,
+            expires_at=datetime.utcnow() + timedelta(minutes=10),
+        )
+    )
+    db.commit()
+    return RedirectResponse(
+        authorization_url(
+            config,
+            metadata,
+            state=state,
+            nonce=nonce,
+            code_challenge=pkce_challenge(code_verifier),
+        ),
+        status_code=303,
+    )
+
+
+def _sso_failure_redirect() -> RedirectResponse:
+    return RedirectResponse("/?sso_error=1", status_code=303)
+
+
+def _accept_sso_invitations(db: Session, user: User) -> None:
+    invitations = (
+        db.query(Invitation)
+        .filter(
+            Invitation.email == user.email,
+            Invitation.accepted_at.is_(None),
+            Invitation.expires_at > datetime.utcnow(),
+        )
+        .all()
+    )
+    for invitation in invitations:
+        existing_membership = (
+            db.query(WorkspaceMembership)
+            .filter(
+                WorkspaceMembership.workspace_id == invitation.workspace_id,
+                WorkspaceMembership.user_id == user.id,
+            )
+            .one_or_none()
+        )
+        if existing_membership is None:
+            db.add(
+                WorkspaceMembership(
+                    workspace_id=invitation.workspace_id,
+                    user_id=user.id,
+                    role=invitation.role,
+                )
+            )
+        invitation.accepted_at = datetime.utcnow()
+
+
+@router.get("/auth/sso/callback")
+def finish_sso_login(
+    db: DbSession,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> RedirectResponse:
+    if error or not code or not state:
+        logger.warning(
+            "OIDC callback rejected by provider: %s", (error or "missing data")[:80]
+        )
+        return _sso_failure_redirect()
+
+    try:
+        config = oidc_config()
+        if config is None:
+            raise OidcError("OIDC is not configured.")
+        state_token = _valid_action_token(db, state, "oidc_state")
+        try:
+            state_payload = json.loads(
+                decrypt_secret(
+                    state_token.payload_json or "",
+                    f"oidc-state:{state_token.token_hash}",
+                )
+            )
+        except Exception as state_error:
+            raise OidcError("The OIDC state payload is invalid.") from state_error
+        nonce = state_payload.get("nonce")
+        code_verifier = state_payload.get("code_verifier")
+        if not isinstance(nonce, str) or not isinstance(code_verifier, str):
+            raise OidcError("The OIDC state payload is invalid.")
+
+        state_token.used_at = datetime.utcnow()
+        db.commit()
+        metadata = discovery_document(config.issuer)
+        id_token = exchange_code(
+            config,
+            metadata,
+            code=code,
+            code_verifier=code_verifier,
+        )
+        claims = validate_id_token(
+            config,
+            metadata,
+            id_token=id_token,
+            nonce=nonce,
+        )
+        subject = claims.get("sub")
+        if not isinstance(subject, str) or not subject or len(subject) > 500:
+            raise OidcError("The identity provider subject is invalid.")
+        email = _normalize_email(str(claims["email"]))
+
+        identity = (
+            db.query(SsoIdentity)
+            .filter(
+                SsoIdentity.issuer == config.issuer,
+                SsoIdentity.subject == subject,
+            )
+            .one_or_none()
+        )
+        user = db.get(User, identity.user_id) if identity else None
+        if user is None:
+            user = db.query(User).filter(User.email == email).one_or_none()
+            pending_invitation = (
+                db.query(Invitation.id)
+                .filter(
+                    Invitation.email == email,
+                    Invitation.accepted_at.is_(None),
+                    Invitation.expires_at > datetime.utcnow(),
+                )
+                .first()
+            )
+            if (
+                user is None
+                and not config.auto_provision
+                and pending_invitation is None
+            ):
+                raise OidcError("This account has not been provisioned.")
+            if user is None:
+                display_name = str(
+                    claims.get("name")
+                    or claims.get("preferred_username")
+                    or email.split("@", 1)[0]
+                ).strip()
+                user = User(
+                    email=email,
+                    name=(display_name or email.split("@", 1)[0])[:120],
+                    password_hash=hash_password(secrets.token_urlsafe(48)),
+                )
+                db.add(user)
+                db.flush()
+            db.add(
+                SsoIdentity(
+                    user_id=user.id,
+                    issuer=config.issuer,
+                    subject=subject,
+                )
+            )
+
+        if not user.is_active:
+            raise OidcError("The user account is disabled.")
+        _accept_sso_invitations(db, user)
+        db.commit()
+        response = RedirectResponse("/", status_code=303)
+        _create_login_session(db, response, user)
+        return response
+    except (
+        HTTPException,
+        OidcError,
+        SQLAlchemyError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as callback_error:
+        db.rollback()
+        logger.warning("OIDC callback failed: %s", callback_error)
+        return _sso_failure_redirect()
+
+
 @router.post("/auth/password-reset/request", status_code=202)
 def request_password_reset(
     payload: PasswordResetRequest,
@@ -828,6 +1060,10 @@ def account_security(
     roadlens_session: SessionCookie = None,
 ) -> dict[str, Any]:
     user = _current_user(db, roadlens_session)
+    try:
+        configured_oidc = oidc_config()
+    except OidcError:
+        configured_oidc = None
     remaining_codes = (
         db.query(ActionToken)
         .filter(
@@ -841,6 +1077,13 @@ def account_security(
     return {
         "mfa_enabled": user.mfa_enabled,
         "recovery_codes_remaining": remaining_codes,
+        "sso_linked": (
+            db.query(SsoIdentity.id).filter(SsoIdentity.user_id == user.id).first()
+            is not None
+        ),
+        "sso_provider_name": (
+            configured_oidc.provider_name if configured_oidc is not None else None
+        ),
     }
 
 
