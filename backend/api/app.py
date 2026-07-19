@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
+from api.product import router as product_router
 from core.config_loader import load_config
+from db.database import create_tables
 from db.models import ViolationEvent
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -16,18 +22,32 @@ CONFIG_ROOT = BACKEND_ROOT / "configs"
 OUTPUT_ROOT = BACKEND_ROOT / "outputs"
 
 
+def cors_origins() -> list[str]:
+    configured = os.getenv("ROADLENS_CORS_ORIGINS")
+    if configured is not None:
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    return [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    create_tables()
+    yield
+
+
 app = FastAPI(
     title="RoadLens API",
     version="0.1.0",
     description="Operational API for traffic evidence processing and review.",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,6 +55,8 @@ app.add_middleware(
 
 if OUTPUT_ROOT.exists():
     app.mount("/api/artifacts", StaticFiles(directory=OUTPUT_ROOT), name="artifacts")
+
+app.include_router(product_router)
 
 
 def _model_dump(model: Any) -> dict[str, Any]:
@@ -93,6 +115,18 @@ DbSession = Annotated[Session, Depends(get_db)]
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "roadlens-api"}
+
+
+@app.get("/api/ready")
+def readiness(db: DbSession) -> dict[str, str]:
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="RoadLens database is unavailable.",
+        ) from error
+    return {"status": "ready", "database": "connected"}
 
 
 @app.get("/api/config")

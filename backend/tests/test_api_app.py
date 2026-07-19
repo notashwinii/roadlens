@@ -15,6 +15,38 @@ def test_health_endpoint():
     assert health() == {"status": "ok", "service": "roadlens-api"}
 
 
+def test_cors_origins_are_environment_configurable(monkeypatch):
+    from api.app import cors_origins
+
+    monkeypatch.setenv(
+        "ROADLENS_CORS_ORIGINS",
+        "https://staging.roadlens.example, https://roadlens.example ",
+    )
+    assert cors_origins() == [
+        "https://staging.roadlens.example",
+        "https://roadlens.example",
+    ]
+
+    monkeypatch.setenv("ROADLENS_CORS_ORIGINS", "")
+    assert cors_origins() == []
+
+
+def test_readiness_checks_the_database():
+    from sqlalchemy.orm import sessionmaker
+
+    from api.app import readiness
+
+    engine = sqlalchemy.create_engine("sqlite://")
+    db = sessionmaker(bind=engine)()
+    try:
+        assert readiness(db) == {
+            "status": "ready",
+            "database": "connected",
+        }
+    finally:
+        db.close()
+
+
 def test_config_endpoint_returns_camera_and_detection_settings():
     from api.app import read_config
 

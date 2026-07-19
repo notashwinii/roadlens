@@ -3,10 +3,12 @@ import os
 from db.models import Detection, EvidenceArtifact, Video, ViolationEvent
 
 
-def save_video(db, video_path):
+def save_video(db, video_path, camera_id=None):
+    video_path = str(video_path)
     video = Video(
         file_name=os.path.basename(video_path),
         file_path=video_path,
+        camera_id=camera_id,
     )
     db.add(video)
     db.commit()

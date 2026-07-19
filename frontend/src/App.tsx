@@ -5,104 +5,214 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleGauge,
-  Clock3,
   FileVideo,
   Map,
   Play,
+  RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
   TriangleAlert,
   Upload
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
-type JobStatus = "Running" | "Review" | "Queued";
 type Severity = "High" | "Medium" | "Low";
+type LoadState = "idle" | "loading" | "ready" | "error";
 
-const cameras = [
-  {
-    name: "Demo Intersection 01",
-    location: "Kathmandu Ring Road",
-    status: "Online",
-    fps: "24 fps",
-    activeRules: 2
-  },
-  {
-    name: "North Gate Camera",
-    location: "School Zone",
-    status: "Idle",
-    fps: "0 fps",
-    activeRules: 1
-  }
-];
-
-const jobs: Array<{
+type CameraConfig = {
   id: string;
-  source: string;
-  status: JobStatus;
-  progress: number;
-  detections: number;
-}> = [
-  {
-    id: "JOB-1042",
-    source: "test_video.mp4",
-    status: "Running",
-    progress: 68,
-    detections: 12
-  },
-  {
-    id: "JOB-1041",
-    source: "crosswalk_evening.mp4",
-    status: "Review",
-    progress: 100,
-    detections: 8
-  },
-  {
-    id: "JOB-1040",
-    source: "restricted_lane.mp4",
-    status: "Queued",
-    progress: 0,
-    detections: 0
-  }
-];
+  name: string;
+  source_type: string;
+  source_path: string;
+  reference_resolution: [number, number];
+  timezone: string;
+};
 
-const violations: Array<{
-  plate: string;
-  rule: string;
-  camera: string;
-  time: string;
-  severity: Severity;
-}> = [
-  {
-    plate: "BA 19 PA 8742",
-    rule: "Restricted Zone Entry",
-    camera: "Demo Intersection 01",
-    time: "09:42",
-    severity: "High"
-  },
-  {
-    plate: "PROBABLE: GA 12 CHA 3011",
-    rule: "Red Light Stop-Line",
-    camera: "Demo Intersection 01",
-    time: "09:31",
-    severity: "Medium"
-  },
-  {
-    plate: "OCR REVIEW",
-    rule: "Zebra Crossing Encroachment",
-    camera: "North Gate Camera",
-    time: "08:58",
-    severity: "Low"
-  }
-];
+type ZoneConfig = {
+  id: string;
+  name: string;
+  type: string;
+  enabled: boolean;
+};
 
-const rules = [
-  "Restricted zone entry",
-  "Red-light stop-line violation",
-  "Zebra crossing encroachment"
-];
+type RuleConfig = {
+  id: string;
+  name: string;
+  enabled: boolean;
+};
+
+type RoadLensConfig = {
+  camera: CameraConfig;
+  zones: ZoneConfig[];
+};
+
+type RulesResponse = {
+  rules: RuleConfig[];
+};
+
+type EvidenceDetection = {
+  id: number;
+  plate_text: string;
+  detector_confidence: number | null;
+  ocr_confidence: number | null;
+};
+
+type EvidenceItem = {
+  id: number;
+  rule: {
+    name: string;
+  };
+  zone: {
+    name: string;
+    type: string;
+  };
+  source_frame_number: number;
+  timestamp_seconds: number | null;
+  vehicle: {
+    class: string;
+    confidence: number | null;
+  };
+  review_status: string;
+  detections: EvidenceDetection[];
+  artifacts: Array<{
+    id: number;
+    type: string;
+    url: string;
+  }>;
+};
+
+type EvidenceResponse = {
+  count: number;
+  items: EvidenceItem[];
+};
+
+type ApiSnapshot = {
+  config: RoadLensConfig | null;
+  rules: RuleConfig[];
+  evidence: EvidenceItem[];
+};
+
+const emptySnapshot: ApiSnapshot = {
+  config: null,
+  rules: [],
+  evidence: []
+};
+
+async function apiGet<T>(path: string): Promise<T> {
+  const response = await fetch(path);
+  if (!response.ok) {
+    throw new Error(`${path} returned ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+async function fetchDashboardSnapshot(): Promise<ApiSnapshot> {
+  await apiGet<{ status: string }>("/api/health");
+  const [config, rulesResponse, evidenceResponse] = await Promise.all([
+    apiGet<RoadLensConfig>("/api/config"),
+    apiGet<RulesResponse>("/api/rules"),
+    apiGet<EvidenceResponse>("/api/evidence")
+  ]);
+
+  return {
+    config,
+    rules: rulesResponse.rules,
+    evidence: evidenceResponse.items
+  };
+}
 
 function App() {
+  const [snapshot, setSnapshot] = useState<ApiSnapshot>(emptySnapshot);
+  const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const loadDashboard = useCallback(
+    async (isCancelled: () => boolean = () => false) => {
+      setLoadState("loading");
+      setErrorMessage(null);
+
+      try {
+        const nextSnapshot = await fetchDashboardSnapshot();
+
+        if (isCancelled()) {
+          return;
+        }
+
+        setSnapshot(nextSnapshot);
+        setLoadState("ready");
+      } catch (error) {
+        if (isCancelled()) {
+          return;
+        }
+
+        setSnapshot(emptySnapshot);
+        setErrorMessage(error instanceof Error ? error.message : "API unavailable");
+        setLoadState("error");
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void loadDashboard(() => cancelled);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadDashboard]);
+
+  const activeRules = snapshot.rules.filter((rule) => rule.enabled);
+  const enabledZones = snapshot.config?.zones.filter((zone) => zone.enabled) ?? [];
+  const openReviews = snapshot.evidence.filter(
+    (item) => item.review_status === "pending"
+  );
+  const acceptedReviews = snapshot.evidence.filter(
+    (item) => item.review_status === "accepted"
+  );
+  const sourceRows = useMemo(() => {
+    if (!snapshot.config) {
+      return [];
+    }
+
+    const [width, height] = snapshot.config.camera.reference_resolution;
+    return [
+      {
+        label: "Source",
+        value: snapshot.config.camera.source_path
+      },
+      {
+        label: "Type",
+        value: snapshot.config.camera.source_type
+      },
+      {
+        label: "Resolution",
+        value: `${width} x ${height}`
+      },
+      {
+        label: "Timezone",
+        value: snapshot.config.camera.timezone
+      }
+    ];
+  }, [snapshot.config]);
+
+  const cameraRows = useMemo(() => {
+    if (!snapshot.config) {
+      return [];
+    }
+
+    return [
+      {
+        name: snapshot.config.camera.name,
+        location: snapshot.config.camera.source_path,
+        status: loadState === "ready" ? "Configured" : "Unknown",
+        fps: snapshot.config.camera.source_type,
+        activeRules: activeRules.length
+      }
+    ];
+  }, [activeRules.length, loadState, snapshot.config]);
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="Primary navigation">
@@ -146,41 +256,43 @@ function App() {
             <button className="icon-button" aria-label="Notifications">
               <Bell size={18} aria-hidden="true" />
             </button>
-            <button className="button secondary">
+            <button className="button secondary" disabled>
               <Upload size={18} aria-hidden="true" />
               Upload video
             </button>
-            <button className="button primary">
+            <button className="button primary" disabled>
               <Play size={18} aria-hidden="true" />
               Start job
             </button>
           </div>
         </header>
 
+        <ApiStatusBanner state={loadState} message={errorMessage} />
+
         <section className="metrics-grid" aria-label="System metrics">
           <MetricCard
             icon={<Activity size={20} aria-hidden="true" />}
-            label="Active cameras"
-            value="2"
-            detail="1 live, 1 idle"
+            label="Configured cameras"
+            value={snapshot.config ? "1" : "0"}
+            detail={snapshot.config?.camera.name ?? "Backend data pending"}
           />
           <MetricCard
             icon={<FileVideo size={20} aria-hidden="true" />}
-            label="Processing jobs"
-            value="3"
-            detail="1 running"
+            label="Evidence records"
+            value={String(snapshot.evidence.length)}
+            detail={`${openReviews.length} pending review`}
           />
           <MetricCard
             icon={<TriangleAlert size={20} aria-hidden="true" />}
-            label="Open reviews"
-            value="18"
-            detail="5 high priority"
+            label="Active rules"
+            value={String(activeRules.length)}
+            detail={`${enabledZones.length} enabled zones`}
           />
           <MetricCard
             icon={<CheckCircle2 size={20} aria-hidden="true" />}
-            label="Accepted today"
-            value="42"
-            detail="96% confidence median"
+            label="Accepted"
+            value={String(acceptedReviews.length)}
+            detail="From persisted evidence"
           />
         </section>
 
@@ -198,57 +310,58 @@ function App() {
             </div>
 
             <div className="camera-list">
-              {cameras.map((camera) => (
-                <article className="camera-row" key={camera.name}>
-                  <div className="camera-icon">
-                    <Camera size={20} aria-hidden="true" />
-                  </div>
-                  <div>
-                    <h3>{camera.name}</h3>
-                    <p>{camera.location}</p>
-                  </div>
-                  <dl>
-                    <div>
-                      <dt>Status</dt>
-                      <dd>{camera.status}</dd>
+              {cameraRows.length > 0 ? (
+                cameraRows.map((camera) => (
+                  <article className="camera-row" key={camera.name}>
+                    <div className="camera-icon">
+                      <Camera size={20} aria-hidden="true" />
                     </div>
                     <div>
-                      <dt>Rate</dt>
-                      <dd>{camera.fps}</dd>
+                      <h3>{camera.name}</h3>
+                      <p>{camera.location}</p>
                     </div>
-                    <div>
-                      <dt>Rules</dt>
-                      <dd>{camera.activeRules}</dd>
-                    </div>
-                  </dl>
-                </article>
-              ))}
+                    <dl>
+                      <div>
+                        <dt>Status</dt>
+                        <dd>{camera.status}</dd>
+                      </div>
+                      <div>
+                        <dt>Source</dt>
+                        <dd>{camera.fps}</dd>
+                      </div>
+                      <div>
+                        <dt>Rules</dt>
+                        <dd>{camera.activeRules}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))
+              ) : (
+                <EmptyState title="No camera config loaded" />
+              )}
             </div>
           </section>
 
-          <section className="panel" id="jobs">
+          <section className="panel" id="source">
             <div className="panel-header">
               <div>
-                <p className="eyebrow">Queue</p>
-                <h2>Processing jobs</h2>
+                <p className="eyebrow">Input</p>
+                <h2>Configured source</h2>
               </div>
-              <Clock3 size={18} aria-hidden="true" />
+              <FileVideo size={18} aria-hidden="true" />
             </div>
 
-            <div className="job-list">
-              {jobs.map((job) => (
-                <article className="job-row" key={job.id}>
-                  <div className="job-title">
-                    <strong>{job.id}</strong>
-                    <span>{job.source}</span>
+            <div className="source-list">
+              {sourceRows.length > 0 ? (
+                sourceRows.map((row) => (
+                  <div className="source-row" key={row.label}>
+                    <span>{row.label}</span>
+                    <strong>{row.value}</strong>
                   </div>
-                  <StatusBadge status={job.status} />
-                  <div className="progress" aria-label={`${job.progress}% complete`}>
-                    <span style={{ width: `${job.progress}%` }} />
-                  </div>
-                  <span className="job-count">{job.detections} detections</span>
-                </article>
-              ))}
+                ))
+              ) : (
+                <EmptyState title="No configured source loaded" />
+              )}
             </div>
           </section>
         </div>
@@ -266,26 +379,34 @@ function App() {
               </button>
             </div>
 
-            <div className="violation-table" role="table" aria-label="Violation queue">
-              <div className="table-head" role="row">
-                <span role="columnheader">Plate</span>
-                <span role="columnheader">Rule</span>
-                <span role="columnheader">Camera</span>
-                <span role="columnheader">Time</span>
-                <span role="columnheader">Priority</span>
-              </div>
-              {violations.map((violation) => (
-                <div className="table-row" role="row" key={`${violation.plate}-${violation.time}`}>
-                  <strong role="cell">{violation.plate}</strong>
-                  <span role="cell">{violation.rule}</span>
-                  <span role="cell">{violation.camera}</span>
-                  <span role="cell">{violation.time}</span>
-                  <span role="cell">
-                    <SeverityBadge severity={violation.severity} />
-                  </span>
+            {snapshot.evidence.length > 0 ? (
+              <div
+                className="violation-table"
+                role="table"
+                aria-label="Violation queue"
+              >
+                <div className="table-head" role="row">
+                  <span role="columnheader">Plate</span>
+                  <span role="columnheader">Rule</span>
+                  <span role="columnheader">Zone</span>
+                  <span role="columnheader">Frame</span>
+                  <span role="columnheader">Status</span>
                 </div>
-              ))}
-            </div>
+                {snapshot.evidence.map((violation) => (
+                  <div className="table-row" role="row" key={violation.id}>
+                    <strong role="cell">{plateLabel(violation)}</strong>
+                    <span role="cell">{violation.rule.name}</span>
+                    <span role="cell">{violation.zone.name}</span>
+                    <span role="cell">{violation.source_frame_number}</span>
+                    <span role="cell">
+                      <SeverityBadge severity={severityFor(violation)} />
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="No persisted evidence records" />
+            )}
           </section>
 
           <section className="panel" id="rules">
@@ -294,25 +415,33 @@ function App() {
                 <p className="eyebrow">Configuration</p>
                 <h2>Active rules</h2>
               </div>
-              <button className="icon-button" aria-label="Rule settings">
-                <SlidersHorizontal size={18} aria-hidden="true" />
+              <button
+                className="icon-button"
+                aria-label="Refresh dashboard"
+                onClick={() => void loadDashboard()}
+              >
+                <RefreshCw size={18} aria-hidden="true" />
               </button>
             </div>
 
             <div className="rule-list">
-              {rules.map((rule) => (
-                <label className="rule-row" key={rule}>
-                  <input type="checkbox" defaultChecked />
-                  <span>{rule}</span>
-                </label>
-              ))}
+              {snapshot.rules.length > 0 ? (
+                snapshot.rules.map((rule) => (
+                  <label className="rule-row" key={rule.id}>
+                    <input type="checkbox" checked={rule.enabled} readOnly />
+                    <span>{rule.name}</span>
+                  </label>
+                ))
+              ) : (
+                <EmptyState title="No rules configured" />
+              )}
             </div>
 
             <div className="zone-summary" id="zones">
               <Map size={20} aria-hidden="true" />
               <div>
-                <strong>4 calibrated zones</strong>
-                <span>Detection ROI, stop line, restricted lane, crossing</span>
+                <strong>{enabledZones.length} enabled zones</strong>
+                <span>{zoneSummary(enabledZones)}</span>
               </div>
             </div>
           </section>
@@ -343,14 +472,65 @@ function MetricCard({
   );
 }
 
-function StatusBadge({ status }: { status: JobStatus }) {
-  return <span className={`badge status-${status.toLowerCase()}`}>{status}</span>;
+function ApiStatusBanner({
+  state,
+  message
+}: {
+  state: LoadState;
+  message: string | null;
+}) {
+  if (state === "ready") {
+    return null;
+  }
+
+  const text =
+    state === "loading"
+      ? "Loading backend data..."
+      : message
+        ? `Backend unavailable: ${message}`
+        : "Backend data is not loaded.";
+
+  return <div className={`api-banner api-banner-${state}`}>{text}</div>;
+}
+
+function EmptyState({ title }: { title: string }) {
+  return <div className="empty-state">{title}</div>;
 }
 
 function SeverityBadge({ severity }: { severity: Severity }) {
   return (
     <span className={`badge severity-${severity.toLowerCase()}`}>{severity}</span>
   );
+}
+
+function plateLabel(item: EvidenceItem) {
+  const firstDetection = item.detections[0];
+  if (!firstDetection) {
+    return "OCR review";
+  }
+
+  return firstDetection.plate_text;
+}
+
+function severityFor(item: EvidenceItem): Severity {
+  if (item.review_status === "accepted") {
+    return "Low";
+  }
+
+  const confidence = item.detections[0]?.ocr_confidence ?? 0;
+  if (confidence < 0.7) {
+    return "High";
+  }
+
+  return "Medium";
+}
+
+function zoneSummary(zones: ZoneConfig[]) {
+  if (zones.length === 0) {
+    return "No active zones from the loaded config";
+  }
+
+  return zones.map((zone) => zone.name).join(", ");
 }
 
 export default App;

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
+from core.camera_source import read_camera_frame
 from core.config_schema import RoadLensConfig, ZoneConfig
 from scene.runtime_zone import RuntimeZone, build_runtime_zone
 
@@ -60,7 +61,7 @@ def build_runtime_zones(
 
 
 def build_scene_from_config(config: RoadLensConfig) -> RuntimeScene:
-    first_frame = read_first_frame(config.camera.source_path)
+    first_frame = read_camera_frame(config)
     frame_width, frame_height = get_frame_size(first_frame)
     runtime_zones = build_runtime_zones(config, frame_width, frame_height)
 
@@ -77,7 +78,7 @@ def runtime_roi_for_video(config: RoadLensConfig) -> tuple[int, int, int, int] |
     if detection_zone is None:
         return None
 
-    first_frame = read_first_frame(config.camera.source_path)
+    first_frame = read_camera_frame(config)
     frame_width, frame_height = get_frame_size(first_frame)
     runtime_zone = build_runtime_zone(detection_zone, frame_width, frame_height)
     return runtime_zone.bounding_rect
